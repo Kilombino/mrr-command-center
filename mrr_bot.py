@@ -13,6 +13,7 @@ Spending is impossible without --live. Every live action is logged to
 state.json and sent to Telegram when configured.
 """
 import argparse
+import fcntl
 import hashlib
 import hmac
 import json
@@ -28,6 +29,7 @@ from datetime import datetime, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(HERE, "config.json")
 STATE_PATH = os.path.join(HERE, "state.json")
+LOCK_PATH = os.path.join(HERE, ".mrr.lock")   # serialises API calls across processes (nonces must arrive in order)
 BASE = "https://www.miningrigrentals.com/api/v2"
 
 DEFAULTS = {
@@ -118,6 +120,19 @@ class MRR:
         return str(n)
 
     def call(self, method, endpoint, params=None, body=None):
+        with open(LOCK_PATH, "w") as lf:
+            fcntl.flock(lf, fcntl.LOCK_EX)
+            try:
+                return self._call(method, endpoint, params, body)
+            except RuntimeError as e:
+                if "Bad Nonce" not in str(e):
+                    raise
+                time.sleep(0.2)
+                return self._call(method, endpoint, params, body)
+            finally:
+                fcntl.flock(lf, fcntl.LOCK_UN)
+
+    def _call(self, method, endpoint, params=None, body=None):
         nonce = self._nonce()
         sig = hmac.new(self.secret.encode(), (self.key + nonce + endpoint).encode(), hashlib.sha1).hexdigest()
         url = BASE + endpoint
