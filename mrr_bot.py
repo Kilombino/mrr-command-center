@@ -386,7 +386,7 @@ def cmd_status(cfg, api, args):
         print(f"rental {d['id']}: rig {d['rig']['id']} {d['rig']['name']} adv {d['hashrate']['advertised']['nice']} "
               f"avg {avg.get('nice')} ({avg.get('percent')}%)  {d['start']} -> {d['end']} "
               f"({rental_remaining_hours(d):.1f} h left)  paid {d['price']['paid']} {d['price']['currency']} "
-              f"ended={d['ended']} refunded={d['refunded']}")
+              f"ended={d.get('ended')} refunded={d.get('refunded')}")
     st = load_state()
     if st["actions"]:
         print("last actions:")
