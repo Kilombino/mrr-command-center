@@ -1,0 +1,23 @@
+{
+ "api_key": "YOUR_MRR_API_KEY",
+ "api_secret": "YOUR_MRR_API_SECRET",
+ "algo": "blake2b",
+ "currency": "BTC",
+ "profile_id": 977001,
+ "reserve_btc": 0.0,
+ "max_spend_per_run_btc": 0.002,
+ "max_concurrent_rentals": 1,
+ "max_hours": 240,
+ "min_hours": 3,
+ "min_rpi": 85,
+ "min_perf_ratio": 0.75,
+ "max_price_premium": 1.25,
+ "price_tolerance": 0.05,
+ "extend_window_hours": 2.0,
+ "excluded_regions": [],
+ "excluded_rigs": [],
+ "telegram": {
+  "token": "",
+  "chat_id": ""
+ }
+}
