@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Terminal=false
+Name=MRR Command Center
+GenericName=Blake2B rental bot dashboard
+Comment=Gateway DATUM, rentas en MiningRigRentals y control del bot
+Exec=/home/marcano/mrr-bot/launcher/mrr-command-center.sh
+Icon=/home/marcano/mrr-bot/assets/icon.png
+Path=/home/marcano/mrr-bot
+StartupWMClass=MRRCommandCenter
+Categories=Finance;Network;Utility;
+Keywords=mrr;blake2b;datum;gateway;mining;rentals;bitcoin;
+StartupNotify=true

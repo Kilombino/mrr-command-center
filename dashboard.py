@@ -46,12 +46,19 @@ HISTORY_MAX = 24 * 3600 // GATEWAY_POLL
 lock = threading.Lock()
 SESSIONS = {}
 LOGIN_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MRR Command Center</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0e14;color:#e6e9ef;font:15px system-ui,sans-serif}
-form{background:#121722;border:1px solid #232b3b;border-radius:14px;padding:28px 30px;width:min(360px,90vw)}h1{font-size:18px;margin:0 0 6px}h1 span{color:#f7931a}
-p{color:#8a93a6;margin:0 0 16px;font-size:13px}input{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #232b3b;background:#0e1219;color:#e6e9ef;font:inherit;margin-bottom:12px}
-button{width:100%;padding:10px;border-radius:8px;border:0;background:#f7931a;color:#120a00;font-weight:600;font:inherit;cursor:pointer}.err{color:#e74c3c;font-size:13px;margin-bottom:10px}</style></head>
-<body><form method="post" action="/login"><h1>⛏ MRR <span>Command Center</span></h1><p>Blake2B · DATUM gateway · bot de rentas</p>
-<div class="err">{{msg}}</div><input type="password" name="password" placeholder="contraseña del dashboard" autofocus autocomplete="current-password"><button type="submit">Entrar</button></form></body></html>"""
+<title>MRR Command Center</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600&family=JetBrains+Mono&display=swap">
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;color:#dfe7f5;font:16px Rajdhani,system-ui,sans-serif;background:#05070d;
+background-image:radial-gradient(900px 500px at 15% -10%,rgba(247,147,26,.18),transparent 60%),radial-gradient(800px 500px at 90% 10%,rgba(25,215,255,.15),transparent 60%),linear-gradient(rgba(25,215,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(25,215,255,.05) 1px,transparent 1px);background-size:auto,auto,42px 42px,42px 42px}
+form{position:relative;background:rgba(12,17,30,.9);border:1px solid #2a3b5e;padding:30px 32px;width:min(380px,92vw);clip-path:polygon(16px 0,100% 0,100% calc(100% - 16px),calc(100% - 16px) 100%,0 100%,0 16px);box-shadow:0 0 40px rgba(25,215,255,.12)}
+form::before{content:"";position:absolute;left:0;top:0;width:100%;height:1px;background:linear-gradient(90deg,#f7931a,transparent 60%)}
+h1{font:700 16px Orbitron,sans-serif;letter-spacing:2.5px;text-transform:uppercase;margin:0 0 6px}h1 span{color:#f7931a;text-shadow:0 0 14px rgba(247,147,26,.6)}
+p{color:#7f8db0;margin:0 0 18px;font-size:12px;letter-spacing:2px;text-transform:uppercase}
+input{width:100%;box-sizing:border-box;padding:11px;border:1px solid #2a3b5e;background:#080c15;color:#dfe7f5;font:15px "JetBrains Mono",monospace;margin-bottom:14px;outline:none}input:focus{border-color:#19d7ff;box-shadow:0 0 10px rgba(25,215,255,.3)}
+button{width:100%;padding:11px;border:0;background:linear-gradient(135deg,#f7931a,#d9780e);color:#140a00;font:700 13px Rajdhani,sans-serif;letter-spacing:2px;text-transform:uppercase;cursor:pointer;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)}button:hover{box-shadow:0 0 18px rgba(247,147,26,.55)}
+.err{color:#ff3b5c;font-size:13px;margin-bottom:10px;min-height:1em}</style></head>
+<body><form method="post" action="/login"><h1>&#8383; MRR <span>Command Center</span></h1><p>Blake2B &middot; DATUM gateway &middot; bot de rentas</p>
+<div class="err">{{msg}}</div><input type="password" name="password" placeholder="contrase&ntilde;a del dashboard" autofocus autocomplete="current-password"><button type="submit">Entrar</button></form></body></html>"""
 cache = {"mrr": {"at": 0, "data": None, "error": None}, "gateway": {"at": 0, "data": None, "error": None}}
 history = []           # [{"t": epoch, "th": total_th, "clients": n}]
 rdns_cache = {}

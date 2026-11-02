@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#101a2e"/><stop offset="1" stop-color="#05070d"/></linearGradient>
+    <linearGradient id="hex" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb347"/><stop offset="1" stop-color="#c2620a"/></linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="glow2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="url(#bg)"/>
+  <g stroke="#19d7ff" stroke-opacity=".18" stroke-width="1">
+    <path d="M0 64H256M0 128H256M0 192H256M64 0V256M128 0V256M192 0V256"/>
+  </g>
+  <path d="M40 40h28M40 40v28M216 216h-28M216 216v-28" fill="none" stroke="#19d7ff" stroke-width="4" stroke-linecap="round" filter="url(#glow2)"/>
+  <polygon points="128,34 208,81 208,175 128,222 48,175 48,81" fill="none" stroke="#19d7ff" stroke-width="3" stroke-opacity=".7" filter="url(#glow2)"/>
+  <polygon points="128,54 190,91 190,165 128,202 66,165 66,91" fill="url(#hex)" filter="url(#glow)"/>
+  <text x="128" y="152" text-anchor="middle" font-family="Orbitron, Rajdhani, DejaVu Sans, sans-serif" font-weight="900" font-size="88" fill="#120a00">₿</text>
+  <text x="128" y="243" text-anchor="middle" font-family="Orbitron, Rajdhani, DejaVu Sans, sans-serif" font-weight="700" font-size="20" letter-spacing="6" fill="#19d7ff" filter="url(#glow2)">MRR</text>
+</svg>
