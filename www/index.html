@@ -307,7 +307,7 @@ async function loadMarket(){
       <td>${r.adv_th.toFixed(2)}</td><td>${r.rpi.toFixed(0)}</td><td>${r.perf!=null?(r.perf*100).toFixed(0)+'%':'–'}</td>
       <td class="mono">${fmtBtc(r.price_th_day)}</td><td class="mono">${r.hour_cost_total.toFixed(9)}</td><td>${r.minh}–${r.maxh}</td>
       <td>${r.afford_h} h</td><td>${r.afford_thh}</td>
-      <td><div class="row"><input type="number" step="1" value="${Math.max(r.minh, Math.floor(r.afford_h))}" style="width:70px" id="rh-${esc(r.id)}"><button class="small primary" data-rent="${esc(r.id)}" data-name="${esc(r.name)}" data-hc="${r.hour_cost_total}" data-th="${r.adv_th}">Rentar</button></div></td></tr>`).join('');
+      <td><div class="row" style="flex-wrap:nowrap"><input type="number" step="1" value="${Math.max(r.minh, Math.floor(r.afford_h))}" style="width:70px" id="rh-${esc(r.id)}"><button class="small primary" data-rent="${esc(r.id)}" data-name="${esc(r.name)}" data-hc="${r.hour_cost_total}" data-th="${r.adv_th}">Rentar</button></div></td></tr>`).join('');
     $('#t-market tbody').querySelectorAll('button[data-rent]').forEach(b=>b.onclick=async()=>{
       const id=b.dataset.rent, hours=parseFloat($('#rh-'+id).value), cost=hours*parseFloat(b.dataset.hc);
       if(!await confirmDlg(`<b>Rentar rig ${id} "${esc(b.dataset.name)}"</b><p>${parseFloat(b.dataset.th).toFixed(2)} TH durante <b>${hours} h</b> = ${(hours*parseFloat(b.dataset.th)).toFixed(0)} TH·h<br>Coste estimado: <b>${fmtBtc(cost)} BTC</b> (fee 3% incluida)</p><p class="muted">Se paga con el saldo confirmado de MRR y apunta al perfil ${esc(state?.profile_id)} (tu gateway).</p>`)) return;
