@@ -44,6 +44,14 @@ GATEWAY_POLL = 10
 HISTORY_MAX = 24 * 3600 // GATEWAY_POLL
 
 lock = threading.Lock()
+SESSIONS = {}
+LOGIN_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MRR Command Center</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0e14;color:#e6e9ef;font:15px system-ui,sans-serif}
+form{background:#121722;border:1px solid #232b3b;border-radius:14px;padding:28px 30px;width:min(360px,90vw)}h1{font-size:18px;margin:0 0 6px}h1 span{color:#f7931a}
+p{color:#8a93a6;margin:0 0 16px;font-size:13px}input{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #232b3b;background:#0e1219;color:#e6e9ef;font:inherit;margin-bottom:12px}
+button{width:100%;padding:10px;border-radius:8px;border:0;background:#f7931a;color:#120a00;font-weight:600;font:inherit;cursor:pointer}.err{color:#e74c3c;font-size:13px;margin-bottom:10px}</style></head>
+<body><form method="post" action="/login"><h1>⛏ MRR <span>Command Center</span></h1><p>Blake2B · DATUM gateway · bot de rentas</p>
+<div class="err">{{msg}}</div><input type="password" name="password" placeholder="contraseña del dashboard" autofocus autocomplete="current-password"><button type="submit">Entrar</button></form></body></html>"""
 cache = {"mrr": {"at": 0, "data": None, "error": None}, "gateway": {"at": 0, "data": None, "error": None}}
 history = []           # [{"t": epoch, "th": total_th, "clients": n}]
 rdns_cache = {}
@@ -442,9 +450,17 @@ class Handler(BaseHTTPRequestHandler):
         if "/api/" not in (args[0] if args else ""):
             return
 
+    def _has_session(self):
+        cookie = self.headers.get("Cookie", "")
+        for part in cookie.split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == "mrr_session" and v in SESSIONS:
+                return True
+        return False
+
     def _auth_ok(self):
         pw = cfg().get("dashboard_password") or ""
-        if not pw:
+        if not pw or self._has_session():
             return True
         hdr = self.headers.get("Authorization", "")
         if hdr.startswith("Basic "):
@@ -454,12 +470,37 @@ class Handler(BaseHTTPRequestHandler):
                     return True
             except Exception:
                 pass
-        self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="MRR Command Center"')
-        self.send_header("Content-Type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"auth required")
+        if self.path.startswith("/api/"):
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"error":"auth required"}')
+        else:
+            self._login_page()
         return False
+
+    def _login_page(self, wrong=False):
+        body = LOGIN_HTML.replace("{{msg}}", "Contraseña incorrecta" if wrong else "").encode()
+        self.send_response(401 if not wrong else 403)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _login(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        form = urllib.parse.parse_qs(self.rfile.read(n).decode())
+        got = (form.get("password") or [""])[0]
+        pw = cfg().get("dashboard_password") or ""
+        if not secrets.compare_digest(got, pw):
+            time.sleep(1)
+            return self._login_page(wrong=True)
+        tok = secrets.token_urlsafe(24)
+        SESSIONS[tok] = time.time()
+        self.send_response(303)
+        self.send_header("Set-Cookie", f"mrr_session={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000")
+        self.send_header("Location", "/")
+        self.end_headers()
 
     def _json(self, obj, status=200):
         body = json.dumps(obj, default=str).encode()
@@ -518,6 +559,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": str(e)}, 500)
 
     def do_POST(self):
+        if self.path == "/login":
+            return self._login()
         if not self._auth_ok():
             return
         n = int(self.headers.get("Content-Length") or 0)
