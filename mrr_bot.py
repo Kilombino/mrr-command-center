@@ -44,6 +44,7 @@ DEFAULTS = {
     "min_perf_ratio": 0.75,        # last_30min / advertised, when the rig reports hashrate
     "max_price_premium": 1.25,     # ignore rigs pricier than market last_10 * this
     "price_tolerance": 0.05,       # among rigs within 5% of best TH-h, take the longest
+    "fee_rate": 0.03,              # MRR adds this on top of the rig price (verified: need/have = 1.03)
     "extend_window_hours": 2.0,    # extend a rental that ends within this window
     "excluded_regions": [],
     "excluded_rigs": [],
@@ -176,7 +177,9 @@ class MRR:
     def rent(self, rig_id, hours, profile_id, currency, price_type, price):
         return self.call("PUT", "/rental", body={
             "rig": int(rig_id), "length": round(hours, 2), "profile": int(profile_id),
-            "currency": currency, "rate": {"type": price_type, "price": price},
+            "currency": currency,
+            # filter must be >= the rig's price; MRR rejects an exact match, so allow 1% headroom
+            "rate": {"type": price_type, "price": f"{price * 1.01:.8f}"},
         })
 
 
@@ -241,12 +244,13 @@ def candidate_rigs(cfg, rigs, market_price):
 def pick(cfg, cands, budget):
     """Choose the rig+hours that buys the most TH-hours; among near-ties take the longest."""
     options = []
+    fee = 1 + cfg["fee_rate"]
     for c in cands:
-        hours = min(c["maxh"], budget / c["hour_cost"])
+        hours = min(c["maxh"], budget / (c["hour_cost"] * fee))
         hours = int(hours * 100) / 100
         if hours < c["minh"]:
             continue
-        options.append((c, hours, hours * c["adv_th"], hours * c["hour_cost"]))
+        options.append((c, hours, hours * c["adv_th"], hours * c["hour_cost"] * fee))
     if not options:
         return None
     best_thh = max(o[2] for o in options)
@@ -290,7 +294,7 @@ def decide(cfg, api, verbose=True):
         if hour_cost <= 0:
             continue
         rig_max = float(r["rig"].get("maxhours") or cfg["max_hours"])
-        hours = min(cfg["max_hours"], rig_max, budget / hour_cost)
+        hours = min(cfg["max_hours"], rig_max, budget / (hour_cost * (1 + cfg["fee_rate"])))
         hours = int(hours * 100) / 100
         if hours < cfg["min_hours"]:
             continue
@@ -352,8 +356,9 @@ def cmd_market(cfg, api, args):
           f"market last_10 {fmt_btc(market)} BTC/TH/day, budget considered {fmt_btc(budget)}")
     print(f"{'rig':>7} {'name':<28} {'reg':<6} {'TH':>6} {'rpi':>5} {'perf':>5} {'BTC/TH/d':>11} "
           f"{'BTC/h':>12} {'min-max h':>10} {'afford h':>9} {'TH-h':>8}")
+    fee = 1 + cfg["fee_rate"]
     for c in cands[: args.top]:
-        hours = min(c["maxh"], budget / c["hour_cost"]) if budget > 0 else 0
+        hours = min(c["maxh"], budget / (c["hour_cost"] * fee)) if budget > 0 else 0
         ok = "" if hours >= c["minh"] else " (short)"
         perf = f"{c['perf']*100:.0f}%" if c["perf"] is not None else "n/a"
         print(f"{c['id']:>7} {c['name'][:28]:<28} {str(c['region']):<6} {c['adv_th']:>6.2f} {c['rpi']:>5.0f} "
