@@ -6,7 +6,7 @@ PROFILE="$HOME/.config/mrr-command-center"
 mkdir -p "$PROFILE"
 if command -v chromium >/dev/null 2>&1; then
   exec chromium --app="$URL" --user-data-dir="$PROFILE" --class=MRRCommandCenter --window-size=1600,1000 \
-    --no-first-run --no-default-browser-check --disable-features=TranslateUI "$@"
+    --no-first-run --no-default-browser-check --disable-features=Translate,TranslateUI "$@"
 else
   exec xdg-open "$URL"
 fi
