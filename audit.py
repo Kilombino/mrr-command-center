@@ -63,6 +63,9 @@ DEFAULTS = {
     "offline_after_s": 120,
     "series_hours": 6,
     "series_bucket_s": 600,
+    "history_days": 7,           # finished rentals kept in the history
+    "favorite_pct": 95,          # a finished rental at or above this % of what was paid...
+                                 # ...with an ok/over verdict makes its rig a favourite
 }
 
 _lock = threading.Lock()
@@ -115,6 +118,16 @@ class Audit:
             c.execute("CREATE INDEX IF NOT EXISTS i_samples_worker ON samples(worker, ts)")
             c.execute("""CREATE TABLE IF NOT EXISTS rental_worker (
                 rental_id TEXT PRIMARY KEY, worker TEXT, observe_from INTEGER, updated INTEGER)""")
+            c.execute("""CREATE TABLE IF NOT EXISTS active (
+                rental_id TEXT PRIMARY KEY, data TEXT NOT NULL, seen INTEGER NOT NULL)""")
+            c.execute("""CREATE TABLE IF NOT EXISTS history (
+                rental_id TEXT PRIMARY KEY, rig_id TEXT, rig_name TEXT, start_unix INTEGER, end_unix INTEGER,
+                advertised_th REAL, mrr_average_th REAL, delivered_th REAL, pct REAL, verdict TEXT,
+                shares INTEGER, expected_shares REAL, paid TEXT, currency TEXT, address TEXT, worker TEXT,
+                finished INTEGER NOT NULL)""")
+            c.execute("""CREATE TABLE IF NOT EXISTS favorites (
+                rig_id TEXT PRIMARY KEY, rig_name TEXT, rentals INTEGER NOT NULL, avg_pct REAL, last_pct REAL,
+                last_at INTEGER)""")
             cols = [r[1] for r in c.execute("PRAGMA table_info(rental_worker)")]
             if "address" not in cols:   # the payout address of the rental's pool user
                 c.execute("ALTER TABLE rental_worker ADD COLUMN address TEXT")
@@ -284,9 +297,87 @@ class Audit:
                 renamed.append({"rental": rid, "from": w, "to": want, "at": now})
                 w, obs = want, now
             self.remember(rid, w, obs, addr, now)
+        self.track(api, rentals, now)
         with _lock:
             _status.update(ok=True, at=now, error=None, renamed=(_status["renamed"] + renamed)[-20:])
         return renamed
+
+    # ------------------------------------------------------------------ history and favourites
+    def track(self, api, rentals, now):
+        """Remember active rentals; when one is no longer active, judge it whole and keep the result."""
+        import json
+        import mrr_bot
+        live = {}
+        for r in rentals:
+            if r.get("ended"):
+                continue
+            try:
+                live[str(r["id"])] = {
+                    "id": str(r["id"]), "rig_id": str(r["rig"]["id"]), "rig_name": r["rig"].get("name"),
+                    "advertised_th": mrr_bot.to_th(r["hashrate"]["advertised"]),
+                    "start_unix": int(mrr_bot.parse_mrr_time(r["start"]).timestamp()),
+                    "end_unix": int(mrr_bot.parse_mrr_time(r["end"]).timestamp()),
+                }
+            except (KeyError, TypeError, ValueError):
+                continue
+        with self.db() as conn:
+            gone = [dict(json.loads(row["data"])) for row in conn.execute("SELECT rental_id, data FROM active")
+                    if row["rental_id"] not in live]
+            for rid, d in live.items():
+                conn.execute("INSERT INTO active VALUES (?,?,?) ON CONFLICT(rental_id) DO UPDATE"
+                             " SET data=excluded.data, seen=excluded.seen", (rid, json.dumps(d), now))
+        for d in gone:
+            try:
+                self.finish(api, d, now)
+            except Exception:
+                continue        # try again on the next pass
+            with self.db() as conn:
+                conn.execute("DELETE FROM active WHERE rental_id=?", (d["id"],))
+        with self.db() as conn:
+            conn.execute("DELETE FROM history WHERE finished < ?", (now - int(self.s["history_days"] * 86400),))
+
+    def finish(self, api, d, now):
+        import mrr_bot
+        full = api.call("GET", f"/rental/{d['id']}")
+        avg = (full.get("hashrate") or {}).get("average") or {}
+        rig = full.get("rig") or {}
+        d["rig_id"] = str(rig.get("id") or d["rig_id"])
+        d["rig_name"] = rig.get("name") or d["rig_name"]
+        try:
+            d["end_unix"] = int(mrr_bot.parse_mrr_time(full["end"]).timestamp())
+        except (KeyError, TypeError, ValueError):
+            pass
+        k = self.workers().get(d["id"]) or {}
+        w = k.get("worker")
+        a = self.analyse(d, w, k.get("observe_from"), False) if w else None
+        price = full.get("price") or {}
+        row = (d["id"], d["rig_id"], d["rig_name"], d["start_unix"], d["end_unix"], d["advertised_th"],
+               mrr_bot.to_th(avg) if avg else None, a and a["delivered_th"], a and a["pct"],
+               a["verdict"] if a else "none", a and a["shares"], a and a["expected_shares"],
+               str(price.get("paid") or ""), price.get("currency"), k.get("address"), w, now)
+        with self.db() as conn:
+            conn.execute("INSERT OR REPLACE INTO history VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
+            if a and a["pct"] is not None and a["verdict"] in ("ok", "over") and a["pct"] >= self.s["favorite_pct"]:
+                f = conn.execute("SELECT * FROM favorites WHERE rig_id=?", (d["rig_id"],)).fetchone()
+                n = (f["rentals"] if f else 0) + 1
+                avg_pct = ((f["avg_pct"] or 0) * (n - 1) + a["pct"]) / n if f else a["pct"]
+                conn.execute("INSERT OR REPLACE INTO favorites VALUES (?,?,?,?,?,?)",
+                             (d["rig_id"], d["rig_name"], n, avg_pct, a["pct"], now))
+
+    def history(self):
+        with self.db() as conn:
+            hist = [dict(r) for r in conn.execute("SELECT * FROM history ORDER BY finished DESC")]
+            favs = [dict(r) for r in conn.execute("SELECT * FROM favorites ORDER BY avg_pct DESC")]
+        return {"history": hist, "favorites": favs, "history_days": self.s["history_days"],
+                "favorite_pct": self.s["favorite_pct"]}
+
+    def favorite(self, rig_id, name=None, on=True):
+        with self.db() as conn:
+            if on:
+                conn.execute("INSERT OR IGNORE INTO favorites VALUES (?,?,0,NULL,NULL,?)",
+                             (str(rig_id), name, int(time.time())))
+            else:
+                conn.execute("DELETE FROM favorites WHERE rig_id=?", (str(rig_id),))
 
     def remember(self, rid, worker, observe_from, address, now=None):
         with self.db() as conn:

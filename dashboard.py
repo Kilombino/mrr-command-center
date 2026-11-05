@@ -36,7 +36,7 @@ DASH_DEFAULTS = {
     "datum_service": "datum-convoy.service",   # unit whose journal is shown in the dashboard
     "datum_service_scope": "user",             # "user" (systemctl --user) or "system"
     "read_only": False,                        # true: the dashboard never spends or touches the bot
-    "bot_ui": True,                            # false: no bot controls, history or log (manual renting only)
+    "bot_ui": False,                           # true: show the upstream bot's controls, history and log
     "rent_address": "",                        # payout address for rentals made here ("" = the profile's)
     "coin_label": "BTC",                       # how the dashboard names MRR's currency...
     "unit_label": "sats",                      # ...and its hundred-millionth
@@ -699,6 +699,8 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/market":
                 b = q.get("budget", [None])[0]
                 return self._json(market_view(float(b) if b else None))
+            if url.path == "/api/history":
+                return self._json(AUDIT[0].history() if AUDIT[0] else {"history": [], "favorites": []})
             if url.path == "/api/rig-graph":
                 return self._json(rig_graph(int(q["id"][0]), int(q.get("hours", ["24"])[0])))
             if url.path == "/api/plan" and cfg().get("bot_ui"):
@@ -726,6 +728,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": "read-only dashboard (read_only in config.json)"}, 403)
             if not c.get("bot_ui") and self.path in ("/api/bot", "/api/config"):
                 return self._json({"ok": False, "error": "the bot is switched off here (bot_ui in config.json)"}, 403)
+            if self.path == "/api/favorite":
+                if not AUDIT[0]:
+                    return self._json({"error": "audit is off"}, 400)
+                AUDIT[0].favorite(int(body["rig"]), body.get("name"), bool(body.get("on", True)))
+                return self._json({"ok": True})
             if self.path == "/api/rent-address":
                 return self._json({"ok": True, "rent_address": set_rent_address(body.get("address"))})
             if self.path == "/api/bot":

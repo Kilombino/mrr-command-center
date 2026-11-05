@@ -1,10 +1,10 @@
 [Unit]
-Description=MRR Command Center (dashboard for the rental bot + DATUM gateway)
+Description=MRR Command Center (rental audit + DATUM gateway dashboard)
 After=network-online.target
 
 [Service]
-WorkingDirectory=%h/mrr-bot
-ExecStart=/usr/bin/python3 -I %h/mrr-bot/dashboard.py
+WorkingDirectory=%h/mrr-command-center
+ExecStart=/usr/bin/python3 -I %h/mrr-command-center/dashboard.py
 Restart=always
 RestartSec=5
 

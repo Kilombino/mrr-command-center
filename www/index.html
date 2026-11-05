@@ -137,6 +137,9 @@ canvas.spark{width:150px;height:34px;display:block}
 .th1{font-weight:700}.th1.s{color:#7f8db0}.th1.m{color:var(--warn)}.th1.l{color:var(--cyan2)}.th1.xl{color:var(--ok);text-shadow:0 0 10px rgba(60,245,154,.5)}
 .face{width:46px;height:46px;flex:none}
 .vmid{display:flex;gap:12px;align-items:center}.vmid .vbars{flex:1}
+.star{background:none;border:0;clip-path:none;padding:0 4px;font-size:18px;color:#4f5c7c;cursor:pointer;line-height:1}
+.star.on{color:#ffd23f;text-shadow:0 0 10px rgba(255,210,63,.7)}.star:hover{box-shadow:none;color:#ffd23f}
+#t-market tr.fav{background:rgba(255,210,63,.05)}
 .vrow a.rn{color:var(--text)}.vrow a.rn:hover{color:var(--cyan2)}
 .flag{font-size:17px;vertical-align:-2px;margin-right:5px}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
@@ -259,6 +262,12 @@ body.nobot #hashcard{grid-column:span 12}
     <div id="verdicts" class="muted">consultando…</div>
   </section>
 
+  <section class="card span12 audit-only"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2>Terminados <span class="right" id="hist-info"></span></h2>
+    <div id="favs" style="margin-bottom:10px"></div>
+    <div class="scroll"><table id="t-hist"><thead><tr><th></th><th>Rig</th><th>Terminó</th><th>Duró</th><th title="Hashrate contratado">Pagado</th><th>MRR dijo</th><th title="Lo que llegó al gateway en todo el alquiler">Recibido</th><th>Veredicto</th><th>Coste</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
   <section class="card span12"><i class="corner tr"></i><i class="corner bl"></i>
     <h2>ASICs en nuestro gateway <span class="right" id="asics-info"></span></h2>
     <div class="scroll"><table id="t-clients"><thead><tr>
@@ -293,7 +302,7 @@ body.nobot #hashcard{grid-column:span 12}
 
   <section class="card span12"><i class="corner tr"></i><i class="corner bl"></i>
     <h2>Mercado Blake2B <span class="muted" style="font:500 12px var(--ui);letter-spacing:0;text-transform:none">rigs usables, más baratos primero · alquilar a mano</span>
-      <span class="right row">presupuesto <input id="mkt-budget" type="number" step="0.0001" style="width:130px" placeholder="auto"> <button id="btn-market" class="small">Actualizar</button></span>
+      <span class="right row"><label class="muted" style="display:inline-flex;gap:5px;align-items:center;font:600 12px var(--ui)"><input type="checkbox" id="only-fav" style="width:auto"> solo ⭐</label> presupuesto <input id="mkt-budget" type="number" step="0.0001" style="width:130px" placeholder="auto"> <button id="btn-market" class="small">Actualizar</button></span>
     </h2>
     <div class="row rw" style="margin-bottom:10px">
       <label style="font:600 10px var(--ui);color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">Address de cobro de lo que alquiles aquí</label>
@@ -303,7 +312,7 @@ body.nobot #hashcard{grid-column:span 12}
     <div class="muted rw" style="font-size:12.5px;margin:-4px 0 10px">Cada alquiler mina como <span class="mono">address.mrr&lt;número de alquiler&gt;</span>: un worker propio desde el primer minuto, para que el cotejo lo separe de los demás.</div>
     <div id="mkt-best" class="muted" style="margin-bottom:10px"></div>
     <div class="scroll"><table id="t-market"><thead><tr>
-      <th>Rig</th><th>Región</th><th title="Hashrate anunciado">Hashrate</th><th title="Hashrate que ha dado el rig en las últimas 24 h según MRR; la línea discontinua es lo anunciado">Últimas 24 h</th><th title="Rig Performance Index de MRR: cómo ha cumplido el rig a lo largo de sus alquileres (100 = da lo anunciado)">RPI</th><th title="Lo que ha dado en los últimos 30 min frente a lo anunciado">Perf 30 min</th><th id="mkt-unit-h" title="Precio por TH y día">sats/TH/día</th><th id="mkt-hour-h" title="Lo que cuesta cada hora de este rig, con la comisión de MRR">sats/h (con fee)</th><th>Horas min–max</th><th></th>
+      <th title="Favoritos: se marcan solos cuando un alquiler termina cumpliendo; también a mano">⭐</th><th>Rig</th><th>Región</th><th title="Hashrate anunciado">Hashrate</th><th title="Hashrate que ha dado el rig en las últimas 24 h según MRR; la línea discontinua es lo anunciado">Últimas 24 h</th><th title="Rig Performance Index de MRR: cómo ha cumplido el rig a lo largo de sus alquileres (100 = da lo anunciado)">RPI</th><th title="Lo que ha dado en los últimos 30 min frente a lo anunciado">Perf 30 min</th><th id="mkt-unit-h" title="Precio por TH y día">sats/TH/día</th><th id="mkt-hour-h" title="Lo que cuesta cada hora de este rig, con la comisión de MRR">sats/h (con fee)</th><th>Horas min–max</th><th></th>
     </tr></thead><tbody></tbody></table></div>
   </section>
 
@@ -475,7 +484,9 @@ async function loadMarket(){
     const m = await api('/api/market'+(b?'?budget='+b:''));
     const C=L().coin;
     $('#mkt-best').innerHTML = m.best ? `Saldo para alquilar: <b>${fmtBtc(m.budget)} ${esc(C)}</b>. Lo que más TH·h da ahora: <b>${esc(m.best.name)}</b> ${m.best.adv_th.toFixed(2)} TH × ${m.best.hours.toFixed(1)} h por ${fmtBtc(m.best.cost)} ${esc(C)} (fee incluida)` : `Con ${fmtBtc(m.budget)} ${esc(C)} no alcanza el mínimo de ningún rig usable.`;
-    $('#t-market tbody').innerHTML = m.rigs.map(r=>`<tr class="${r.affordable?'':'muted'}">
+    const favs=new Set(((hist&&hist.favorites)||[]).map(f=>String(f.rig_id))), onlyFav=$('#only-fav').checked;
+    $('#t-market tbody').innerHTML = m.rigs.filter(r=>!onlyFav||favs.has(String(r.id))).map(r=>`<tr class="${r.affordable?'':'muted'} ${favs.has(String(r.id))?'fav':''}">
+      <td><button class="star ${favs.has(String(r.id))?'on':''}" data-fav="${esc(r.id)}" data-name="${esc(r.name)}" title="${favs.has(String(r.id))?'Quitar de favoritos':'Marcar como favorito'}">${favs.has(String(r.id))?'★':'☆'}</button></td>
       <td class="rig"><a href="https://www.miningrigrentals.com/rigs/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.id)}</a><small title="${esc(r.name)}">${esc(r.name)}</small></td><td>${flag(r.region)}</td>
       <td class="th1 ${r.adv_th>=50?'xl':r.adv_th>=15?'l':r.adv_th>=5?'m':'s'}">${fmtTh(r.adv_th)}</td>
       <td><canvas class="spark" data-rig="${esc(r.id)}" data-adv="${r.adv_th}"></canvas></td>
@@ -483,6 +494,8 @@ async function loadMarket(){
       <td class="mono" title="${esc(altOf(r.price_th_day))}">${units(r.price_th_day)}</td><td class="mono" title="${esc(altOf(r.hour_cost_total))}">${units(r.hour_cost_total)}</td><td>${r.minh}–${r.maxh} h</td>
       <td><div class="row" style="flex-wrap:nowrap"><input type="number" step="1" value="${Math.max(r.minh, Math.floor(r.afford_h))}" style="width:70px" id="rh-${esc(r.id)}"><button class="small primary" data-rent="${esc(r.id)}" data-name="${esc(r.name)}" data-hc="${r.hour_cost_total}" data-th="${r.adv_th}">Rentar</button></div></td></tr>`).join('');
     loadSparks();
+    $('#t-market tbody').querySelectorAll('button[data-fav]').forEach(b=>b.onclick=async()=>{
+      try{ await api('/api/favorite',{rig:b.dataset.fav,name:b.dataset.name,on:!b.classList.contains('on')}); await loadHistory(); loadMarket(); }catch(e){ toast(e.message,true); } });
     $('#t-market tbody').querySelectorAll('button[data-rent]').forEach(b=>b.onclick=async()=>{
       const id=b.dataset.rent, hours=parseFloat($('#rh-'+id).value), cost=hours*parseFloat(b.dataset.hc);
       const addr=state?.rent_address;
@@ -528,6 +541,7 @@ $('#cfg').oninput = ()=>{ $('#cfg').dataset.dirty='1'; };
 $('#cfg').onsubmit = async ev=>{ ev.preventDefault(); const fd=new FormData(ev.target); const body={}; for(const [k,v] of fd.entries()) body[k]=v;
   try{ const r=await api('/api/config',body); toast('Guardado: '+Object.keys(r.applied).join(', ')); delete $('#cfg').dataset.dirty; refresh(); }catch(e){ toast(e.message,true);} };
 $('#btn-market').onclick = loadMarket;
+$('#only-fav').onchange = loadMarket;
 $('#rent-addr').oninput = ()=>{ $('#rent-addr').dataset.dirty='1'; };
 $('#btn-addr').onclick = async()=>{ const v=$('#rent-addr').value.trim();
   if(!await confirmDlg(v?`<b>Fijar la address de cobro</b><p class="mono" style="word-break:break-all">${esc(v)}</p><p class="muted">Los alquileres que hagas desde aquí minarán a ella. Los que ya están en marcha no cambian.</p>`:'<b>Quitar la address fija</b><p class="muted">Los alquileres nuevos usarán la del perfil de pool de MRR.</p>')) return;
@@ -535,7 +549,7 @@ $('#btn-addr').onclick = async()=>{ const v=$('#rent-addr').value.trim();
 $('#btn-logs').onclick = loadLogs;
 window.addEventListener('resize', ()=>state && drawChart(state.history||[]));
 
-refresh().then(loadMarket); loadLogs();
+Promise.all([refresh(), loadHistory()]).then(loadMarket); loadLogs();
 setInterval(refresh, 15000); setInterval(loadMarket, 5*60000); setInterval(loadLogs, 60000);
 // ---------------------------------------------------------------- rental audit (audit.py)
 let audit=null;
@@ -637,9 +651,27 @@ function drawChart2(){
   ctx.fillStyle='rgba(255,255,255,.75)'; ctx.fillText('pagado '+contracted.toFixed(0)+' TH/s', W-pad.r-150, y(contracted)-6);
   $('#chart2-legend').innerHTML=stack.slice().reverse().map(s=>`<span><i style="display:inline-block;width:12px;height:12px;background:${s.col};box-shadow:0 0 8px ${s.col};vertical-align:-2px;margin-right:6px"></i>${esc(s.name||s.w)} <span class="muted">${(S.series[s.w][n-1]||0).toFixed(1)} / ${s.th.toFixed(1)}</span></span>`).join('');
 }
+var hist=null;
+async function loadHistory(){
+  try{ hist=await api('/api/history'); }catch(e){ return; }
+  const C=L().coin, H=hist.history||[];
+  $('#hist-info').textContent = `últimos ${hist.history_days||7} días · ⭐ automático si cumple ≥${hist.favorite_pct||95}%`;
+  $('#favs').innerHTML = (hist.favorites||[]).length ? '<span class="muted" style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase">Favoritos</span> '+hist.favorites.map(f=>
+    `<a class="tag" style="margin:2px 4px;color:var(--warn);border-color:rgba(255,210,63,.5)" href="https://www.miningrigrentals.com/rigs/${esc(f.rig_id)}" target="_blank" rel="noopener" title="${f.rentals?f.rentals+' alquiler(es) cumplidos, media '+Math.round(f.avg_pct)+'%':'marcado a mano'}">★ ${esc(f.rig_name||f.rig_id)}</a>`).join('')
+    : '<span class="muted">Aún no hay favoritos: un rig entra solo cuando un alquiler suyo termina cumpliendo, o marcándolo con ☆ en el mercado.</span>';
+  const fmtD=s=>new Date(s*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  $('#t-hist tbody').innerHTML = H.length ? H.map(h=>`<tr>
+    <td>${face({advertised_th:h.advertised_th,mrr_average_th:h.mrr_average_th,analysis:h.delivered_th!=null?{delivered_th:h.delivered_th}:null}).replace('class="face"','class="face" style="width:30px;height:30px"')}</td>
+    <td><a class="rn" href="https://www.miningrigrentals.com/rental/${esc(h.rental_id)}" target="_blank" rel="noopener">${esc(h.rig_name||h.rig_id)} ↗</a></td>
+    <td>${fmtD(h.end_unix)}</td><td>${fmtH((h.end_unix-h.start_unix)/3600)}</td>
+    <td>${(h.advertised_th||0).toFixed(2)} TH/s</td><td>${h.mrr_average_th!=null?h.mrr_average_th.toFixed(2)+' TH/s':'–'}</td>
+    <td><b style="color:var(--accent2)">${h.delivered_th!=null?h.delivered_th.toFixed(2)+' TH/s':'–'}</b>${h.pct!=null?' <span class="muted">('+Math.round(h.pct)+'%)</span>':''}</td>
+    <td><span class="verd ${esc(h.verdict)}">${VTXT[h.verdict]||esc(h.verdict)}</span></td><td class="mono">${esc(h.paid)} ${esc(h.currency==='BTC'?C:(h.currency||''))}</td></tr>`).join('')
+    : `<tr><td colspan="9" class="muted">Ningún alquiler ha terminado desde que se guarda el historial.</td></tr>`;
+}
 async function loadAudit(){ try{ audit=await api('/api/audit'); renderAudit(); if(state) renderRentals(state.mrr); }catch(e){ const el=$('#cotejo'); if(el) el.textContent='auditoría no disponible: '+e.message; } }
 window.addEventListener('resize', drawChart2);
-loadAudit(); setInterval(loadAudit, 60000);
+loadAudit(); setInterval(loadAudit, 60000); setInterval(loadHistory, 300000);
 </script>
 </body>
 </html>
