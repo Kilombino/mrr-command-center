@@ -34,6 +34,8 @@
  "datum_service": "datum-convoy.service",
  "datum_service_scope": "user",
  "read_only": false,
+ "bot_ui": true,
+ "rent_address": "",
  "audit": {
   "enabled": true,
   "assign_workers": false,

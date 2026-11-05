@@ -36,6 +36,8 @@ DASH_DEFAULTS = {
     "datum_service": "datum-convoy.service",   # unit whose journal is shown in the dashboard
     "datum_service_scope": "user",             # "user" (systemctl --user) or "system"
     "read_only": False,                        # true: the dashboard never spends or touches the bot
+    "bot_ui": True,                            # false: no bot controls, history or log (manual renting only)
+    "rent_address": "",                        # payout address for rentals made here ("" = the profile's)
 }
 EDITABLE_KNOBS = {
     "reserve_btc": float, "max_spend_per_run_btc": float, "max_concurrent_rentals": int,
@@ -52,7 +54,7 @@ SESSIONS = {}
 AUDIT = [None]            # audit.Audit instance when enabled
 AUDIT_PREFIX = ["mrr"]
 LOGIN_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MRR Command Center</title>
+<title>MRR Command Center</title><link rel="icon" href="/favicon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600&family=JetBrains+Mono&display=swap">
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;color:#dfe7f5;font:16px Rajdhani,system-ui,sans-serif;background:#05070d;
 background-image:radial-gradient(900px 500px at 15% -10%,rgba(247,147,26,.18),transparent 60%),radial-gradient(800px 500px at 90% 10%,rgba(25,215,255,.15),transparent 60%),linear-gradient(rgba(25,215,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(25,215,255,.05) 1px,transparent 1px);background-size:auto,auto,42px 42px,42px 42px}
@@ -62,9 +64,12 @@ h1{font:700 16px Orbitron,sans-serif;letter-spacing:2.5px;text-transform:upperca
 p{color:#7f8db0;margin:0 0 18px;font-size:12px;letter-spacing:2px;text-transform:uppercase}
 input{width:100%;box-sizing:border-box;padding:11px;border:1px solid #2a3b5e;background:#080c15;color:#dfe7f5;font:15px "JetBrains Mono",monospace;margin-bottom:14px;outline:none}input:focus{border-color:#19d7ff;box-shadow:0 0 10px rgba(25,215,255,.3)}
 button{width:100%;padding:11px;border:0;background:linear-gradient(135deg,#f7931a,#d9780e);color:#140a00;font:700 13px Rajdhani,sans-serif;letter-spacing:2px;text-transform:uppercase;cursor:pointer;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)}button:hover{box-shadow:0 0 18px rgba(247,147,26,.55)}
-.err{color:#ff3b5c;font-size:13px;margin-bottom:10px;min-height:1em}</style></head>
-<body><form method="post" action="/login"><h1>&#8383; MRR <span>Command Center</span></h1><p>Blake2B &middot; DATUM gateway &middot; bot de rentas</p>
+.err{color:#ff3b5c;font-size:13px;margin-bottom:10px;min-height:1em}
+.cover{display:block;width:72%;margin:0 auto 18px;border-radius:50%;box-shadow:0 0 40px rgba(25,215,255,.35),0 0 60px rgba(247,147,26,.25)}</style></head>
+<body><form method="post" action="/login"><img class="cover" src="/img/cover.jpg" alt=""><h1>MRR <span>Command Center</span></h1><p>Blake2B &middot; DATUM gateway &middot; alquileres</p>
 <div class="err">{{msg}}</div><input type="password" name="password" placeholder="contrase&ntilde;a del dashboard" autofocus autocomplete="current-password"><button type="submit">Entrar</button></form></body></html>"""
+STATIC = {"/img/cover.jpg": ("img/cover.jpg", "image/jpeg"), "/img/logo-96.png": ("img/logo-96.png", "image/png"),
+          "/img/logo-192.png": ("img/logo-192.png", "image/png"), "/favicon.png": ("img/favicon.png", "image/png")}
 cache = {"mrr": {"at": 0, "data": None, "error": None}, "gateway": {"at": 0, "data": None, "error": None}}
 history = []           # [{"t": epoch, "th": total_th, "clients": n}]
 rdns_cache = {}
@@ -365,6 +370,7 @@ def market_view(budget=None):
     for x in cands[:40]:
         hours = min(x["maxh"], budget / (x["hour_cost"] * fee)) if budget > 0 else 0
         rows.append(dict(x, afford_h=round(hours, 1), afford_thh=round(hours * x["adv_th"]),
+                         sat_th_day=round(x["price_th_day"] * 1e8),
                          affordable=hours >= x["minh"], hour_cost_total=x["hour_cost"] * fee))
     choice = mrr_bot.pick(c, cands, budget)
     best = None
@@ -387,7 +393,30 @@ def plan_view():
             "budget_left": ctx["budget_left"], "log": buf.getvalue()}
 
 
+ADDRESS_RE = re.compile(r"^(bc1[02-9ac-hj-np-z]{11,87}|[13][1-9A-HJ-NP-Za-km-z]{25,34})$")
+
+
+def set_rent_address(address):
+    address = (address or "").strip()
+    if address and not ADDRESS_RE.match(address):
+        raise RuntimeError("that does not look like a mainnet address (bc1… / 1… / 3…)")
+    with open(mrr_bot.CONFIG_PATH) as f:
+        raw = json.load(f)
+    raw["rent_address"] = address
+    tmp = mrr_bot.CONFIG_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(raw, f, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, mrr_bot.CONFIG_PATH)
+    return address
+
+
 def manual_rent(rig_id, hours):
+    """Rent one rig for the given hours, only when the user presses Rent and confirms.
+
+    The rental mines to the pool profile, then its pool user is rewritten to
+    <rent_address>.<worker_prefix><rental id>: a worker of its own (so the audit can
+    tell it apart from the start) paying to the address fixed on the dashboard."""
     c = cfg()
     api = mrr_api(c)
     rig = api.call("GET", f"/rig/{int(rig_id)}")
@@ -403,15 +432,32 @@ def manual_rent(rig_id, hours):
     if cost > confirmed:
         raise RuntimeError(f"insufficient confirmed balance: need {cost:.8f}, have {confirmed:.8f}")
     res = api.rent(rig["id"], hours, c["profile_id"], c["currency"], rig["price"]["type"], float(p["price"]))
+    rid = res.get("id")
+    worker = address = None
+    note = ""
+    if rid:
+        prefix = audit_mod.settings(c)["worker_prefix"]
+        worker = f"{prefix}{rid}"
+        try:
+            pool = audit_mod.top_pool(api, rid)
+            address = (c.get("rent_address") or "").strip() or (pool or {}).get("user", "").split(".", 1)[0]
+            if pool and address:
+                audit_mod.set_pool_user(api, rid, pool, address, worker)
+                if AUDIT[0]:
+                    AUDIT[0].remember(rid, worker, None, address)
+        except Exception as e:   # the rental exists and mines to the profile either way
+            note = f" (pool user not changed: {e})"
+            worker = None
     summary = (f"MANUAL RENT rig {rig['id']} \"{rig['name']}\" {rig['hashrate']['advertised']['nice']} for {hours:.2f} h"
-               f" -> rental {res.get('id')} paid {res.get('price', {}).get('paid')} ends {res.get('end')}")
+               f" -> rental {rid} paid {res.get('price', {}).get('paid')} ends {res.get('end')}"
+               + (f", worker {worker} paying to {address}" if worker else "") + note)
     st = api.state
     st["actions"].append({"at": mrr_bot.now_utc().strftime("%Y-%m-%d %H:%M:%S UTC"), "ok": True, "summary": summary,
                           "action": {"type": "manual_rent", "rig": rig["id"], "hours": hours}})
     mrr_bot.save_state(st)
     mrr_bot.telegram(c, "✅ MRR dashboard: " + summary)
     mrr_overview(force=True)
-    return {"summary": summary, "rental": res}
+    return {"summary": summary, "rental": res, "worker": worker, "address": address}
 
 
 def extend_rental(rental_id, hours, quote_only):
@@ -553,9 +599,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        url = urllib.parse.urlparse(self.path)
+        if url.path in STATIC:
+            return self._file(*STATIC[url.path])
         if not self._auth_ok():
             return
-        url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
         try:
             if url.path in ("/", "/index.html"):
@@ -575,7 +623,8 @@ class Handler(BaseHTTPRequestHandler):
                     "config": {k: c.get(k) for k in EDITABLE_KNOBS},
                     "profile_id": c.get("profile_id"), "own_addresses": c.get("own_addresses"),
                     "datum_service": c.get("datum_service"),
-                    "read_only": bool(c.get("read_only")),
+                    "read_only": bool(c.get("read_only")), "bot_ui": bool(c.get("bot_ui")),
+                    "rent_address": c.get("rent_address") or "",
                 })
             if url.path == "/api/audit":
                 if not AUDIT[0]:
@@ -585,10 +634,10 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/market":
                 b = q.get("budget", [None])[0]
                 return self._json(market_view(float(b) if b else None))
-            if url.path == "/api/plan":
+            if url.path == "/api/plan" and cfg().get("bot_ui"):
                 return self._json(plan_view())
             if url.path == "/api/log":
-                return self._json({"bot": bot_log(), "gateway": gateway_log()})
+                return self._json({"bot": bot_log() if cfg().get("bot_ui") else [], "gateway": gateway_log()})
             return self._json({"error": "not found"}, 404)
         except Exception as e:
             return self._json({"error": str(e)}, 500)
@@ -604,9 +653,14 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self._json({"error": "bad json"}, 400)
         try:
-            if cfg().get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent") or (
+            c = cfg()
+            if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address") or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
                 return self._json({"ok": False, "error": "read-only dashboard (read_only in config.json)"}, 403)
+            if not c.get("bot_ui") and self.path in ("/api/bot", "/api/config"):
+                return self._json({"ok": False, "error": "the bot is switched off here (bot_ui in config.json)"}, 403)
+            if self.path == "/api/rent-address":
+                return self._json({"ok": True, "rent_address": set_rent_address(body.get("address"))})
             if self.path == "/api/bot":
                 action = body.get("action")
                 if action == "enable":

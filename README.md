@@ -3,7 +3,8 @@
 > This is a fork of [MarcanoFilms/mrr-blake2b-bot](https://github.com/MarcanoFilms/mrr-blake2b-bot)
 > by [Marcano Trades](https://github.com/MarcanoFilms). The bot, the MRR client and the
 > MRR Command Center are his work. This fork adds a **rental audit** (does the hashrate
-> you pay for actually reach your gateway?), a **read-only mode** and a few fixes; see
+> you pay for actually reach your gateway?), **manual renting without the bot**, a
+> **read-only mode** and a few fixes; see
 > [What this fork adds](#what-this-fork-adds). Everything else works as upstream.
 
 Rents Blake2B hashrate on [MiningRigRentals](https://www.miningrigrentals.com) (MRR)
@@ -135,6 +136,23 @@ counted, so the gateway figure can read slightly low for rigs that reconnect ver
 `/api/bot`, `/api/config`, `/api/rent` and `/api/extend` (quotes still work). Useful when
 the MRR key has rent permission but you only want to watch, or the dashboard is shared.
 
+### Manual renting without the bot
+
+`"bot_ui": false` takes the bot out of the dashboard: no timer switch, plan, parameters,
+action history or bot log, and the server refuses `/api/bot` and `/api/config`. Nothing
+rents on its own; the market table keeps its **Rent** buttons and every rental waits for
+a confirmation.
+
+A rental made from the dashboard gets a worker of its own straight away: right after MRR
+creates it, its pool user is rewritten to `<rent_address>.<worker_prefix><rental id>`.
+`rent_address` is set from the market card (empty = the address of the pool profile), so
+the payout address stays fixed while the worker changes with every rental. The audit
+then measures it from its first share, and each rental card shows the address it mines
+to, the hashrate expected and the hashrate received. Extend controls live in the rental
+cards; the separate "active rentals" card is shown only when the audit is off.
+
+Market prices are shown in sats per TH per day.
+
 ### Smaller changes
 
 - `datum_service_scope`: `"system"` shows the journal of a system unit
@@ -193,6 +211,8 @@ node), the stratum port MRR connects to is the forwarded one, not the local one.
 | `datum_service` | `datum-convoy.service` | systemd unit whose journal the dashboard shows |
 | `datum_service_scope` | `user` | `user` or `system` (fork) |
 | `read_only` | false | dashboard never spends nor touches the bot (fork) |
+| `bot_ui` | true | false: no bot controls, history or log; renting only by hand (fork) |
+| `rent_address` | `""` | payout address for rentals made from the dashboard, `""` = profile's (fork) |
 | `audit.enabled` | true | record gateway samples and show the rental audit (fork) |
 | `audit.assign_workers` | false | give each active rental its own worker through the MRR API (fork) |
 | `audit.worker_prefix` | `mrr` | worker name = prefix + rental id (fork) |
@@ -210,6 +230,7 @@ www/index.html    dashboard UI (single file, no build step)
 systemd/          mrr-bot.service, mrr-bot.timer, mrr-dashboard.service
 launcher/         Chromium app-mode launcher + .desktop template
 assets/           icon
+www/img/          logo, favicon and login cover of this fork
 config.json       your secrets and knobs (gitignored)
 state.json        nonce + action log (gitignored)
 history.json      gateway hashrate history (gitignored)

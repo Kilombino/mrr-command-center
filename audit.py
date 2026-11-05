@@ -115,6 +115,9 @@ class Audit:
             c.execute("CREATE INDEX IF NOT EXISTS i_samples_worker ON samples(worker, ts)")
             c.execute("""CREATE TABLE IF NOT EXISTS rental_worker (
                 rental_id TEXT PRIMARY KEY, worker TEXT, observe_from INTEGER, updated INTEGER)""")
+            cols = [r[1] for r in c.execute("PRAGMA table_info(rental_worker)")]
+            if "address" not in cols:   # the payout address of the rental's pool user
+                c.execute("ALTER TABLE rental_worker ADD COLUMN address TEXT")
 
     def record(self, clients, poll_seconds):
         """Store one gateway poll (the parsed client list of dashboard.py)."""
@@ -273,23 +276,24 @@ class Audit:
         renamed = []
         for rid, pool in pools.items():
             w = worker_of(pool)
+            addr = ((pool or {}).get("user") or "").split(".", 1)[0] or None
             obs = (known.get(rid) or {}).get("observe_from")
             if self.s["assign_workers"] and pool and (not w or count.get(w, 0) > 1):
                 want = f"{self.s['worker_prefix']}{rid}"
-                addr = pool["user"].split(".", 1)[0]
-                api.call("PUT", f"/rental/{rid}/pool/{pool.get('priority') or 0}", body={
-                    "host": pool["host"], "port": int(pool["port"]), "user": f"{addr}.{want}",
-                    "pass": pool.get("pass") or "x",   # MRR rejects an empty password
-                })
+                set_pool_user(api, rid, pool, addr, want)
                 renamed.append({"rental": rid, "from": w, "to": want, "at": now})
                 w, obs = want, now
-            with self.db() as conn:
-                conn.execute("INSERT INTO rental_worker VALUES (?,?,?,?) ON CONFLICT(rental_id) DO UPDATE"
-                             " SET worker=excluded.worker, observe_from=excluded.observe_from, updated=excluded.updated",
-                             (rid, w, obs, now))
+            self.remember(rid, w, obs, addr, now)
         with _lock:
             _status.update(ok=True, at=now, error=None, renamed=(_status["renamed"] + renamed)[-20:])
         return renamed
+
+    def remember(self, rid, worker, observe_from, address, now=None):
+        with self.db() as conn:
+            conn.execute("INSERT INTO rental_worker (rental_id, worker, observe_from, updated, address) VALUES (?,?,?,?,?)"
+                         " ON CONFLICT(rental_id) DO UPDATE SET worker=excluded.worker, observe_from=excluded.observe_from,"
+                         " updated=excluded.updated, address=excluded.address",
+                         (str(rid), worker, observe_from, int(now or time.time()), address))
 
     def view(self, rentals):
         known = self.workers()
@@ -305,12 +309,27 @@ class Audit:
             a = self.analyse(r, w, k.get("observe_from"), count.get(w, 0) > 1) if w else None
             out.append({"id": r["id"], "rig_name": r.get("rig_name"), "advertised_th": r["advertised_th"],
                         "mrr_average_th": r.get("average_th"), "mrr_average_pct": r.get("average_pct"),
-                        "left_h": r.get("left_h"), "analysis": a})
+                        "left_h": r.get("left_h"), "address": k.get("address"), "analysis": a})
         workers = sorted({x["analysis"]["worker"] for x in out if x["analysis"]})
         with _lock:
             st = dict(_status)
         return {"rentals": out, "series": self.series(workers), "sync": st,
                 "assign_workers": bool(self.s["assign_workers"]), "sigma": self.s["sigma"]}
+
+
+def top_pool(api, rid):
+    """The rental's first-priority pool, as MRR returns it."""
+    p = api.call("GET", f"/rental/{rid}/pool")
+    top = sorted(p.get("pools") or [], key=lambda x: int(x.get("priority") or 0))
+    return top[0] if top else None
+
+
+def set_pool_user(api, rid, pool, address, worker):
+    """Point a rental's pool user at <address>.<worker> (same host, port and password)."""
+    api.call("PUT", f"/rental/{rid}/pool/{pool.get('priority') or 0}", body={
+        "host": pool["host"], "port": int(pool["port"]), "user": f"{address}.{worker}",
+        "pass": pool.get("pass") or "x",   # MRR rejects an empty password
+    })
 
 
 def sync_loop(audit, make_api, save):

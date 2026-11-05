@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MRR Command Center</title>
+<link rel="icon" href="/favicon.png">
+<meta property="og:image" content="/img/cover.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -36,8 +38,7 @@ header{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:10px 18px
   background:linear-gradient(180deg,rgba(8,11,20,.96),rgba(8,11,20,.82));backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
 header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--accent) 20%,var(--cyan) 60%,transparent)}
 .brand{display:flex;align-items:center;gap:12px}
-.brand .logo{width:38px;height:38px;display:grid;place-items:center;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);
-  background:linear-gradient(135deg,var(--accent),#c2620a);color:#120a00;font:900 18px var(--display);box-shadow:0 0 18px rgba(247,147,26,.55)}
+.brand .logo{width:46px;height:46px;border-radius:50%;display:block;box-shadow:0 0 18px rgba(25,215,255,.45),0 0 22px rgba(247,147,26,.35)}
 .brand h1{margin:0;font:700 17px/1 var(--display);letter-spacing:2.5px;text-transform:uppercase}
 .brand h1 span{color:var(--accent);text-shadow:0 0 14px rgba(247,147,26,.6)}
 .brand h1 small{display:block;margin-top:5px;font:600 10px/1 var(--ui);letter-spacing:3px;color:var(--muted);text-transform:uppercase}
@@ -146,6 +147,12 @@ dialog b{font-family:var(--display);font-size:14px;letter-spacing:.5px}
 body.ro .rw,body.ro #sw-timer,body.ro #btn-run,body.ro #cfg,body.ro button[data-rent]{display:none!important}
 body.ro .ro-note{display:block!important}
 body.noaudit .audit-only{display:none}
+body:not(.noaudit) .noaudit-only{display:none}
+body.nobot .bot-ui{display:none!important}
+body.nobot #hashcard{grid-column:span 12}
+.vexp{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font:500 12.5px var(--mono)}
+.vexp b{color:#fff}.vexp .got{color:var(--accent2)}
+.addr{font:500 11.5px var(--mono);color:var(--muted);word-break:break-all}
 .vrow{display:grid;grid-template-columns:minmax(180px,1.3fr) 3fr minmax(120px,.8fr);gap:14px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
 .vrow:first-child{border-top:0}
 .vbars{display:grid;gap:4px}
@@ -167,12 +174,12 @@ body.noaudit .audit-only{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><div class="logo">₿</div><h1>MRR <span>Command Center</span><small>Blake2B · DATUM gateway · bot de rentas</small></h1></div>
+  <div class="brand"><img class="logo" src="/img/logo-96.png" alt=""><h1>MRR <span>Command Center</span><small>Blake2B · DATUM gateway · alquileres</small></h1></div>
   <span class="clock" id="clock">--:--:--</span>
   <div class="pills">
     <span class="pill" id="p-gw">gateway: …</span>
     <span class="pill" id="p-pool">pool: …</span>
-    <span class="pill" id="p-timer">bot: …</span>
+    <span class="pill bot-ui" id="p-timer">bot: …</span>
     <span class="pill" id="p-upd">actualizado: …</span>
   </div>
 </header>
@@ -183,16 +190,16 @@ body.noaudit .audit-only{display:none}
     <div class="kpi"><div class="l">ASICs conectados</div><div class="v" id="k-asics">–</div><div class="s" id="k-asics-s"></div></div>
     <div class="kpi"><div class="l">Rentas activas</div><div class="v" id="k-rentals">–</div><div class="s" id="k-rentals-s"></div></div>
     <div class="kpi"><div class="l">Saldo MRR</div><div class="v" id="k-bal">–</div><div class="s" id="k-bal-s"></div></div>
-    <div class="kpi"><div class="l">Mercado Blake2B</div><div class="v" id="k-mkt">–</div><div class="s" id="k-mkt-s">BTC / TH / día (últimas 10)</div></div>
+    <div class="kpi"><div class="l">Mercado Blake2B</div><div class="v" id="k-mkt">–</div><div class="s" id="k-mkt-s">sats / TH / día (últimas 10)</div></div>
     <div class="kpi"><div class="l">Bloque</div><div class="v" id="k-block">–</div><div class="s" id="k-block-s"></div></div>
   </section>
 
-  <section class="card span8"><i class="corner tr"></i><i class="corner bl"></i>
+  <section class="card span8" id="hashcard"><i class="corner tr"></i><i class="corner bl"></i>
     <h2>Hashrate recibido <span class="right" id="chart-info"></span></h2>
     <canvas id="chart" height="200"></canvas>
   </section>
 
-  <section class="card span4"><i class="corner tr"></i><i class="corner bl"></i>
+  <section class="card span4 bot-ui"><i class="corner tr"></i><i class="corner bl"></i>
     <h2>Control del bot</h2>
     <div class="muted ro-note" style="display:none;margin-bottom:10px">Panel en modo <b>solo lectura</b> (<code>read_only</code> en config.json): no alquila, no extiende ni toca el bot.</div>
     <div class="row" style="margin-bottom:10px">
@@ -238,7 +245,7 @@ body.noaudit .audit-only{display:none}
   </section>
 
   <section class="card span12 audit-only"><i class="corner tr"></i><i class="corner bl"></i>
-    <h2>Veredicto por alquiler <span class="right">pagado · lo que dice MRR · lo que llega al gateway</span></h2>
+    <h2><span id="v-title">Alquileres</span> <span class="right">pagado · lo que dice MRR · lo que llega al gateway</span></h2>
     <div id="verdicts" class="muted">consultando…</div>
   </section>
 
@@ -265,30 +272,36 @@ body.noaudit .audit-only{display:none}
     </div>
   </section>
 
-  <section class="card span6"><i class="corner tr"></i><i class="corner bl"></i>
+  <section class="card span6 noaudit-only"><i class="corner tr"></i><i class="corner bl"></i>
     <h2>Rentas activas en MRR</h2>
     <div id="rentals"></div>
   </section>
 
-  <section class="card span6"><i class="corner tr"></i><i class="corner bl"></i>
+  <section class="card span6 bot-ui"><i class="corner tr"></i><i class="corner bl"></i>
     <h2>Historial del bot</h2>
     <div id="actions" class="log" style="max-height:300px"></div>
   </section>
 
   <section class="card span12"><i class="corner tr"></i><i class="corner bl"></i>
-    <h2>Mercado Blake2B <span class="muted" style="font:500 12px var(--ui);letter-spacing:0;text-transform:none">rigs usables, más baratos primero</span>
+    <h2>Mercado Blake2B <span class="muted" style="font:500 12px var(--ui);letter-spacing:0;text-transform:none">rigs usables, más baratos primero · alquilar a mano</span>
       <span class="right row">presupuesto <input id="mkt-budget" type="number" step="0.0001" style="width:130px" placeholder="auto"> <button id="btn-market" class="small">Actualizar</button></span>
     </h2>
+    <div class="row rw" style="margin-bottom:10px">
+      <label style="font:600 10px var(--ui);color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">Address de cobro de lo que alquiles aquí</label>
+      <input id="rent-addr" style="flex:1;min-width:260px" placeholder="vacío = la del perfil de pool de MRR" spellcheck="false">
+      <button id="btn-addr" class="small">Fijar</button>
+    </div>
+    <div class="muted rw" style="font-size:12.5px;margin:-4px 0 10px">Cada alquiler mina como <span class="mono">address.mrr&lt;número de alquiler&gt;</span>: un worker propio desde el primer minuto, para que el cotejo lo separe de los demás.</div>
     <div id="mkt-best" class="muted" style="margin-bottom:10px"></div>
     <div class="scroll"><table id="t-market"><thead><tr>
-      <th>Rig</th><th>Nombre</th><th>Región</th><th>TH</th><th title="Rig Performance Index de MRR (100 = cumple lo anunciado)">RPI</th><th title="Rendimiento real de los últimos 30 min vs. anunciado">Perf</th><th>BTC/TH/día</th><th>BTC/h (con fee)</th><th>Horas min–max</th><th title="Horas que paga el presupuesto">Alcanza</th><th title="TH·h totales que compra el presupuesto">TH·h</th><th></th>
+      <th>Rig</th><th>Nombre</th><th>Región</th><th>TH</th><th title="Rig Performance Index de MRR (100 = cumple lo anunciado)">RPI</th><th title="Rendimiento real de los últimos 30 min vs. anunciado">Perf</th><th title="Precio del rig en sats (de la moneda de MRR) por TH y día">sats/TH/día</th><th>BTC/h (con fee)</th><th>Horas min–max</th><th title="Horas que paga el presupuesto">Alcanza</th><th title="TH·h totales que compra el presupuesto">TH·h</th><th></th>
     </tr></thead><tbody></tbody></table></div>
   </section>
 
   <section class="card span12"><i class="corner tr"></i><i class="corner bl"></i>
     <h2>Logs <span class="right"><button id="btn-logs" class="small">Actualizar</button></span></h2>
     <div class="row" style="align-items:flex-start">
-      <div style="flex:1;min-width:300px"><div class="section-num" style="margin-bottom:5px">// mrr-bot.service</div><div id="log-bot" class="log"></div></div>
+      <div class="bot-ui" style="flex:1;min-width:300px"><div class="section-num" style="margin-bottom:5px">// mrr-bot.service</div><div id="log-bot" class="log"></div></div>
       <div style="flex:1;min-width:300px"><div class="section-num" style="margin-bottom:5px" id="log-gw-title">// datum gateway</div><div id="log-gw" class="log"></div></div>
     </div>
   </section>
@@ -323,13 +336,15 @@ function pill(id, text, cls){ const e=$(id); e.innerHTML=text; e.className='pill
 function render(d){
   state = d;
   document.body.classList.toggle('ro', !!d.read_only);
+  document.body.classList.toggle('nobot', !d.bot_ui);
+  const ra=$('#rent-addr'); if(ra && !ra.dataset.dirty) ra.value=d.rent_address||'';
   const gw = d.gateway, mrr = d.mrr, bot = d.bot;
   if(d.datum_service) document.getElementById('log-gw-title').textContent = '// '+d.datum_service;
   // pills
   if(gw){ const st=(gw.status.status||'').toLowerCase(); pill('#p-gw', 'gateway: <b>'+esc(gw.status.status||'?')+'</b>', st.includes('ready')||st.includes('connected')?'ok':'warn');
           pill('#p-pool', 'pool: <b>'+esc(gw.status.pool_host||'?')+'</b> · shares '+esc(gw.status.pool_shares_accepted).split('(')[0].trim()+'/'+esc(gw.status.pool_shares_rejected).split('(')[0].trim(), ''); }
   else { pill('#p-gw','gateway: <b>sin datos</b> '+esc(d.gateway_error||''),'bad'); }
-  pill('#p-timer', 'bot: <b>'+(bot.timer_enabled?'ON':'OFF')+'</b>'+(bot.service_running?' · ejecutando':''), bot.timer_enabled?'ok':'warn');
+  pill('#p-timer', 'bot: <b>'+(bot.timer_enabled?'ON':'OFF')+'</b>'+(bot.service_running?' · ejecutando':''), 'bot-ui '+(bot.timer_enabled?'ok':'warn'));
   pill('#p-upd', 'actualizado: <b>'+new Date().toLocaleTimeString()+'</b>'+(d.mrr_error?' · MRR: '+esc(d.mrr_error):''), d.mrr_error?'bad':'');
   // kpis
   if(gw){
@@ -346,8 +361,9 @@ function render(d){
     $('#k-rentals-s').textContent = r.length ? r.map(x=>x.advertised+' · '+fmtH(x.left_h)+' restantes').join(' | ') : 'ninguna';
     $('#k-bal').textContent = fmtBtc(mrr.balance.confirmed);
     $('#k-bal-s').textContent = 'sin confirmar '+fmtBtc(mrr.balance.unconfirmed)+' · reserva '+fmtBtc(d.config.reserve_btc);
-    $('#k-mkt').textContent = fmtBtc(mrr.market.last_10);
-    $('#k-mkt-s').textContent = 'mín '+fmtBtc(mrr.market.lowest)+' · '+mrr.market.available_rigs+' rigs / '+mrr.market.available_hash+' libres';
+    const sats=x=>Math.round(x*1e8).toLocaleString();
+    $('#k-mkt').textContent = sats(mrr.market.last_10);
+    $('#k-mkt-s').textContent = 'sats/TH/día · mín '+sats(mrr.market.lowest)+' · '+mrr.market.available_rigs+' rigs / '+mrr.market.available_hash+' libres';
   }
   // bot
   const sw=$('#sw-timer'); sw.className='switch'+(bot.timer_enabled?' on':''); $('#sw-label').textContent = bot.timer_enabled?'timer activo (cada 15 min)':'timer apagado';
@@ -443,13 +459,15 @@ async function loadMarket(){
     $('#t-market tbody').innerHTML = m.rigs.map(r=>`<tr class="${r.affordable?'':'muted'}">
       <td class="mono"><a href="https://www.miningrigrentals.com/rigs/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.id)}</a></td><td>${esc(r.name)}</td><td>${esc(r.region)}</td>
       <td>${r.adv_th.toFixed(2)}</td><td>${r.rpi.toFixed(0)}</td><td>${r.perf!=null?(r.perf*100).toFixed(0)+'%':'–'}</td>
-      <td class="mono">${fmtBtc(r.price_th_day)}</td><td class="mono">${r.hour_cost_total.toFixed(9)}</td><td>${r.minh}–${r.maxh}</td>
+      <td class="mono">${Math.round(r.price_th_day*1e8).toLocaleString()}</td><td class="mono">${r.hour_cost_total.toFixed(9)}</td><td>${r.minh}–${r.maxh}</td>
       <td>${r.afford_h} h</td><td>${r.afford_thh}</td>
       <td><div class="row" style="flex-wrap:nowrap"><input type="number" step="1" value="${Math.max(r.minh, Math.floor(r.afford_h))}" style="width:70px" id="rh-${esc(r.id)}"><button class="small primary" data-rent="${esc(r.id)}" data-name="${esc(r.name)}" data-hc="${r.hour_cost_total}" data-th="${r.adv_th}">Rentar</button></div></td></tr>`).join('');
     $('#t-market tbody').querySelectorAll('button[data-rent]').forEach(b=>b.onclick=async()=>{
       const id=b.dataset.rent, hours=parseFloat($('#rh-'+id).value), cost=hours*parseFloat(b.dataset.hc);
-      if(!await confirmDlg(`<b>Rentar rig ${id} "${esc(b.dataset.name)}"</b><p>${parseFloat(b.dataset.th).toFixed(2)} TH durante <b>${hours} h</b> = ${(hours*parseFloat(b.dataset.th)).toFixed(0)} TH·h<br>Coste estimado: <b>${fmtBtc(cost)} BTC</b> (fee 3% incluida)</p><p class="muted">Se paga con el saldo confirmado de MRR y apunta al perfil ${esc(state?.profile_id)} (tu gateway).</p>`)) return;
-      try{ const r=await api('/api/rent',{rig:id,hours}); toast(r.summary); refresh(true); loadMarket(); }catch(e){ toast(e.message,true); }
+      const addr=state?.rent_address;
+      if(!await confirmDlg(`<b>Alquilar rig ${id} "${esc(b.dataset.name)}"</b><p>${parseFloat(b.dataset.th).toFixed(2)} TH durante <b>${hours} h</b> = ${(hours*parseFloat(b.dataset.th)).toFixed(0)} TH·h<br>Coste estimado: <b>${fmtBtc(cost)} BTC</b> (fee incluida), del saldo confirmado de MRR.</p>
+        <p>Mina a tu gateway (perfil ${esc(state?.profile_id)}) como <span class="mono">${addr?esc(addr):'address del perfil'}.mrr&lt;número de alquiler&gt;</span>.</p><p class="muted">Solo se alquila si confirmas. No hay nada automático.</p>`)) return;
+      try{ const r=await api('/api/rent',{rig:id,hours}); toast(r.summary); refresh(true); loadMarket(); loadAudit(); }catch(e){ toast(e.message,true); }
     });
   }catch(e){ $('#mkt-best').textContent='error: '+e.message; }
 }
@@ -468,6 +486,10 @@ $('#cfg').oninput = ()=>{ $('#cfg').dataset.dirty='1'; };
 $('#cfg').onsubmit = async ev=>{ ev.preventDefault(); const fd=new FormData(ev.target); const body={}; for(const [k,v] of fd.entries()) body[k]=v;
   try{ const r=await api('/api/config',body); toast('Guardado: '+Object.keys(r.applied).join(', ')); delete $('#cfg').dataset.dirty; refresh(); }catch(e){ toast(e.message,true);} };
 $('#btn-market').onclick = loadMarket;
+$('#rent-addr').oninput = ()=>{ $('#rent-addr').dataset.dirty='1'; };
+$('#btn-addr').onclick = async()=>{ const v=$('#rent-addr').value.trim();
+  if(!await confirmDlg(v?`<b>Fijar la address de cobro</b><p class="mono" style="word-break:break-all">${esc(v)}</p><p class="muted">Los alquileres que hagas desde aquí minarán a ella. Los que ya están en marcha no cambian.</p>`:'<b>Quitar la address fija</b><p class="muted">Los alquileres nuevos usarán la del perfil de pool de MRR.</p>')) return;
+  try{ const r=await api('/api/rent-address',{address:v}); delete $('#rent-addr').dataset.dirty; toast(r.rent_address?'Address fijada':'Address quitada'); refresh(); }catch(e){ toast(e.message,true);} };
 $('#btn-logs').onclick = loadLogs;
 window.addEventListener('resize', ()=>state && drawChart(state.history||[]));
 
@@ -508,13 +530,28 @@ function renderAudit(){
   const mx2=Math.max(1,...rs.map(x=>Math.max(x.advertised_th,x.mrr_average_th||0,x.analysis?x.analysis.delivered_th:0)));
   const b2=(cls,lab,v,ex)=>`<div class="vb ${cls}"><span>${lab}</span><div class="tr"><i style="width:${((v||0)/mx2*100).toFixed(1)}%"></i></div><b>${v==null?'–':v.toFixed(2)}${ex||''}</b></div>`;
   rs.sort((p,q)=>q.advertised_th-p.advertised_th);
+  $('#v-title').textContent = rs.length===1 ? '1 alquiler' : rs.length+' alquileres';
   $('#verdicts').innerHTML = rs.length? rs.map(x=>{ const a=x.analysis||{verdict:'none'};
+    const got=a.delivered_th, pct=a.pct;
     return `<div class="vrow"><div><b>${esc(x.rig_name||'')}</b><div class="muted mono" style="font-size:11.5px">#${esc(x.id)}${a.worker?' · '+esc(a.worker):''}${a.worker?(a.connected?' · <span class="ok">● minando</span>':' · <span class="bad">● desconectado</span>'):''} · ${fmtH(x.left_h||0)} restantes</div>
-      ${a.partial?'<div class="muted" style="font-size:11.5px">medido desde '+new Date(a.observed_from*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+'</div>':''}</div>
+      <div class="vexp"><span>esperado <b>${x.advertised_th.toFixed(2)} TH/s</b></span><span>recibido <b class="got">${got!=null?got.toFixed(2)+' TH/s':'–'}</b>${pct!=null?' <span class="muted">('+pct.toFixed(0)+'%)</span>':''}</span></div>
+      ${x.address?'<div class="addr" title="address a la que mina este alquiler">→ '+esc(x.address)+'</div>':''}
+      ${a.partial?'<div class="muted" style="font-size:11.5px">medido desde '+new Date(a.observed_from*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+'</div>':''}
+      <div class="row rw" style="margin-top:6px;flex-wrap:nowrap"><input type="number" step="1" min="1" value="24" style="width:70px" id="vext-${esc(x.id)}"><span class="muted">h</span>
+        <button class="small" data-vext="${esc(x.id)}" data-q="1">Cotizar</button><button class="small primary" data-vext="${esc(x.id)}">Extender</button></div></div>
       <div class="vbars">${b2('c','pagado',x.advertised_th)}${b2('m','MRR dice',x.mrr_average_th)}${b2('d','gateway',a.delivered_th, a.rel_err_pct?' <span class="muted">±'+a.rel_err_pct.toFixed(0)+'%</span>':'')}</div>
       <div><span class="verd ${a.verdict}" title="${esc(VHELP[a.verdict]||'')}">${VTXT[a.verdict]||a.verdict}</span>${a.z!=null&&Math.abs(a.z)>audit.sigma?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+Math.abs(a.z).toFixed(1)+' sigmas</div>':''}
         ${a.shares!=null?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+a.shares.toLocaleString()+' / '+Math.round(a.expected_shares).toLocaleString()+' shares</div>':''}</div></div>`;}).join('')
     : '<div class="muted">sin rentas activas</div>';
+  $('#verdicts').querySelectorAll('button[data-vext]').forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.vext, hours=parseFloat($('#vext-'+id).value);
+    try{
+      const q = await api('/api/extend',{rental:id,hours,quote_only:true}); const c=q.quote||{};
+      if(b.dataset.q){ toast(`Extender ${hours} h costaría ${c.cost} ${c.currency||'BTC'} (nuevo total ${c.new_hrs} h)`); return; }
+      if(!await confirmDlg(`<b>Extender alquiler #${id} ${hours} h</b><p>Coste: <b>${c.cost} ${c.currency||'BTC'}</b> · total tras extender: ${c.new_hrs} h</p>`)) return;
+      const r = await api('/api/extend',{rental:id,hours}); toast(r.summary); refresh(true); loadAudit();
+    }catch(e){ toast(e.message,true); }
+  });
   drawChart2();
 }
 function drawChart2(){
