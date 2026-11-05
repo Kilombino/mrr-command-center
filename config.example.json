@@ -31,5 +31,14 @@
   "user": "oracle",
   "password": "YOUR_DATUM_GATEWAY_ADMIN_PASSWORD"
  },
- "datum_service": "datum-convoy.service"
+ "datum_service": "datum-convoy.service",
+ "datum_service_scope": "user",
+ "read_only": false,
+ "audit": {
+  "enabled": true,
+  "assign_workers": false,
+  "worker_prefix": "mrr",
+  "sigma": 3,
+  "retention_days": 7
+ }
 }

@@ -5,3 +5,6 @@ history.json
 history.json.tmp
 .mrr.lock
 __pycache__/
+audit.db
+audit.db-wal
+audit.db-shm

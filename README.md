@@ -1,5 +1,11 @@
 # mrr-blake2b-bot
 
+> This is a fork of [MarcanoFilms/mrr-blake2b-bot](https://github.com/MarcanoFilms/mrr-blake2b-bot)
+> by [Marcano Trades](https://github.com/MarcanoFilms). The bot, the MRR client and the
+> MRR Command Center are his work. This fork adds a **rental audit** (does the hashrate
+> you pay for actually reach your gateway?), a **read-only mode** and a few fixes; see
+> [What this fork adds](#what-this-fork-adds). Everything else works as upstream.
+
 Rents Blake2B hashrate on [MiningRigRentals](https://www.miningrigrentals.com) (MRR)
 and points it at your own [DATUM](https://github.com/OCEAN-xyz/datum_gateway) gateway,
 so rented rigs mine blocks that *you* build. Ships with the **MRR Command Center**,
@@ -73,6 +79,70 @@ digest auth with `gateway.user` / `gateway.password`). The bot/timer controls us
 (Chromium app mode, own profile so the login cookie persists); `install.sh` adds
 a desktop entry for it.
 
+## What this fork adds
+
+### Rental audit
+
+MRR shows how much hashrate *it* measured for each rental. The audit checks that
+against what your own gateway accepted, so you can tell a weak rig, a lossy path or
+a wrong number apart. For every active rental the dashboard shows three figures:
+
+| | source |
+|---|---|
+| **paid** | the rental's advertised TH/s |
+| **MRR says** | MRR's own average for the rental |
+| **gateway** | accepted shares × share difficulty for the rental's worker, from the gateway's client page |
+
+New cards: **Cotejo** (totals), **Hashrate que llega por alquiler** (stacked chart per
+rental, complete 10-minute buckets, with the paid total as a dashed line) and
+**Veredicto por alquiler** (the three bars plus a verdict per rental). Each active
+rental card also gets a "llega al gateway" line.
+
+How it measures (details in the docstring of `audit.py`):
+
+- Every gateway poll is stored in `audit.db` (SQLite, `retention_days`, default 7).
+- Each stratum connection has its own cumulative share counter and MRR's proxies
+  reconnect often, so the work of a rental is the sum of the per-connection
+  increments. A connection born inside the window counts from zero.
+- Work is counted as **shares × vardiff**, not from the cumulative difficulty column:
+  recent gateways print that column with an SI prefix and three significant digits
+  (`2.10E`), and on a long-lived connection it does not move for hours.
+- **Verdict**: the expected number of shares for the *paid* hashrate over the window
+  is `TH/s × 1e12 × seconds / (vardiff × 2^32)`. A rental is `corto` (short) only when
+  the shares received are more than `sigma` (default 3) standard deviations below that,
+  `de sobra` (over) when above, `cumple` (ok) otherwise. Testing against the error of
+  what was *measured* instead would call a rental that delivered 0.03 % "ok" (one share
+  has 100 % error).
+- Until 10 shares are expected the verdict is `arrancando` (starting).
+
+**One worker per rental.** The gateway can only tell rentals apart by the stratum
+worker (the part of the user after the first dot): all rentals arrive through MRR's
+proxies, from a few IPs, and one rental can show several user agents. If your pool
+profile gives every rental the same worker, those rentals are shown as
+`worker compartido` and not judged. With `audit.assign_workers: true` the dashboard
+fixes that itself: every active rental whose worker is shared (or missing) gets its
+pool user rewritten through the MRR API to `<address>.<worker_prefix><rental id>`
+(`PUT /rental/<id>/pool/<priority>`). That changes the pool of a rental you already
+paid for; it never rents or extends. Rigs reconnect within a minute. Work from before
+the change cannot be split, so the rental is judged from that moment on.
+
+Known limit: a connection that opens and closes between two polls (10 s) is not
+counted, so the gateway figure can read slightly low for rigs that reconnect very often.
+
+### Read-only mode
+
+`"read_only": true` hides the bot, rent and extend controls and makes the server refuse
+`/api/bot`, `/api/config`, `/api/rent` and `/api/extend` (quotes still work). Useful when
+the MRR key has rent permission but you only want to watch, or the dashboard is shared.
+
+### Smaller changes
+
+- `datum_service_scope`: `"system"` shows the journal of a system unit
+  (`journalctl -u`) instead of a user unit.
+- IPv4-mapped client addresses (`::ffff:1.2.3.4`) are shown and reverse-resolved as IPv4.
+- Clients whose worker is `<worker_prefix><digits>` are labelled `MRR proxy` even when
+  the proxy has no reverse DNS.
+
 ## Install
 
 ```bash
@@ -120,13 +190,22 @@ node), the stratum port MRR connects to is the forwarded one, not the local one.
 | `dashboard_password` | random | dashboard login |
 | `own_addresses` | `[]` | your payout addresses, to tell your miners from foreign ones |
 | `gateway.url/user/password` | `http://127.0.0.1:7158`, `oracle` | DATUM gateway admin page + digest auth |
-| `datum_service` | `datum-convoy.service` | systemd user unit whose journal the dashboard shows |
+| `datum_service` | `datum-convoy.service` | systemd unit whose journal the dashboard shows |
+| `datum_service_scope` | `user` | `user` or `system` (fork) |
+| `read_only` | false | dashboard never spends nor touches the bot (fork) |
+| `audit.enabled` | true | record gateway samples and show the rental audit (fork) |
+| `audit.assign_workers` | false | give each active rental its own worker through the MRR API (fork) |
+| `audit.worker_prefix` | `mrr` | worker name = prefix + rental id (fork) |
+| `audit.sigma` | 3 | standard deviations before calling a rental short (fork) |
+| `audit.retention_days` | 7 | how long gateway samples are kept in `audit.db` (fork) |
+| `audit.series_hours` / `audit.series_bucket_s` | 6 / 600 | per-rental chart span and bucket (fork) |
 
 ## Files
 
 ```
 mrr_bot.py        the bot (CLI + MRR API client + strategy)
 dashboard.py      MRR Command Center server
+audit.py          rental audit: gateway samples, verdicts, per-rental worker (fork)
 www/index.html    dashboard UI (single file, no build step)
 systemd/          mrr-bot.service, mrr-bot.timer, mrr-dashboard.service
 launcher/         Chromium app-mode launcher + .desktop template
@@ -134,6 +213,7 @@ assets/           icon
 config.json       your secrets and knobs (gitignored)
 state.json        nonce + action log (gitignored)
 history.json      gateway hashrate history (gitignored)
+audit.db          gateway samples for the rental audit (gitignored, fork)
 ```
 
 ## Notes and gotchas
@@ -151,3 +231,4 @@ history.json      gateway hashrate history (gitignored)
 ## License
 
 MIT. Made by [Marcano Trades](https://github.com/MarcanoFilms).
+Rental audit and read-only mode in this fork by [Kilombino](https://github.com/Kilombino), same license.

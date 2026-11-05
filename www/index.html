@@ -143,6 +143,26 @@ dialog b{font-family:var(--display);font-size:14px;letter-spacing:.5px}
 .section-num{font:500 10px var(--mono);color:var(--dim);letter-spacing:2px}
 .corner{position:absolute;width:12px;height:12px;border-color:var(--cyan);border-style:solid;opacity:.6;pointer-events:none}
 .corner.tr{top:4px;right:4px;border-width:1px 1px 0 0}.corner.bl{bottom:4px;left:4px;border-width:0 0 1px 1px}
+body.ro .rw,body.ro #sw-timer,body.ro #btn-run,body.ro #cfg,body.ro button[data-rent]{display:none!important}
+body.ro .ro-note{display:block!important}
+body.noaudit .audit-only{display:none}
+.vrow{display:grid;grid-template-columns:minmax(180px,1.3fr) 3fr minmax(120px,.8fr);gap:14px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.vrow:first-child{border-top:0}
+.vbars{display:grid;gap:4px}
+.vb{display:grid;grid-template-columns:70px 1fr 82px;gap:8px;align-items:center;font:500 11.5px var(--mono);color:var(--muted)}
+.vb .tr{height:9px;background:rgba(25,215,255,.06);position:relative;overflow:hidden}
+.vb .tr i{position:absolute;left:0;top:0;bottom:0}
+.vb.c i{background:linear-gradient(90deg,rgba(126,234,255,.25),rgba(126,234,255,.6))}
+.vb.m i{background:linear-gradient(90deg,rgba(25,215,255,.35),var(--cyan));box-shadow:0 0 8px rgba(25,215,255,.6)}
+.vb.d i{background:linear-gradient(90deg,rgba(247,147,26,.4),var(--accent2));box-shadow:0 0 10px rgba(247,147,26,.7)}
+.vb b{color:var(--text,#dfe7f5);text-align:right}
+.verd{display:inline-block;padding:3px 10px;font:700 11px var(--ui);letter-spacing:1.5px;text-transform:uppercase;border:1px solid}
+.verd.ok,.verd.over{color:var(--ok);border-color:rgba(60,245,154,.6);background:rgba(60,245,154,.07)}
+.verd.short,.verd.nothing{color:var(--bad);border-color:rgba(255,59,92,.7);background:rgba(255,59,92,.08)}
+.verd.starting,.verd.waiting,.verd.shared,.verd.none{color:var(--warn);border-color:rgba(255,210,63,.5);background:rgba(255,210,63,.06)}
+.big3{display:grid;gap:12px}
+.big3 .n{font:700 26px var(--display);letter-spacing:1px}
+@media(max-width:700px){.vrow{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -174,6 +194,7 @@ dialog b{font-family:var(--display);font-size:14px;letter-spacing:.5px}
 
   <section class="card span4"><i class="corner tr"></i><i class="corner bl"></i>
     <h2>Control del bot</h2>
+    <div class="muted ro-note" style="display:none;margin-bottom:10px">Panel en modo <b>solo lectura</b> (<code>read_only</code> en config.json): no alquila, no extiende ni toca el bot.</div>
     <div class="row" style="margin-bottom:10px">
       <label class="switch" id="sw-timer" title="Timer systemd cada 15 min"><i></i><span id="sw-label">timer</span></label>
     </div>
@@ -203,6 +224,22 @@ dialog b{font-family:var(--display);font-size:14px;letter-spacing:.5px}
         <div style="grid-column:1/-1"><button class="primary" type="submit">Guardar parámetros</button></div>
       </form>
     </details>
+  </section>
+
+  <section class="card span4 audit-only"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2>Cotejo: ¿llega lo que pagas?</h2>
+    <div id="cotejo" class="muted">consultando…</div>
+  </section>
+
+  <section class="card span8 audit-only"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2>Hashrate que llega por alquiler <span class="right" id="chart2-info">medido en el gateway por shares</span></h2>
+    <canvas id="chart2" height="240"></canvas>
+    <div id="chart2-legend" class="legend" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card span12 audit-only"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2>Veredicto por alquiler <span class="right">pagado · lo que dice MRR · lo que llega al gateway</span></h2>
+    <div id="verdicts" class="muted">consultando…</div>
   </section>
 
   <section class="card span12"><i class="corner tr"></i><i class="corner bl"></i>
@@ -285,6 +322,7 @@ function pill(id, text, cls){ const e=$(id); e.innerHTML=text; e.className='pill
 
 function render(d){
   state = d;
+  document.body.classList.toggle('ro', !!d.read_only);
   const gw = d.gateway, mrr = d.mrr, bot = d.bot;
   if(d.datum_service) document.getElementById('log-gw-title').textContent = '// '+d.datum_service;
   // pills
@@ -360,7 +398,8 @@ function renderRentals(mrr){
     <div class="row" style="margin:8px 0"><span>anunciado <b>${esc(r.advertised)}</b></span><span>media MRR <b class="${(parseFloat(r.average_pct)||0)<80?'warn':'ok'}">${esc(r.average||'–')} (${esc(r.average_pct||'0')}%)</b></span><span>pagado <b>${esc(r.paid)} ${esc(r.currency)}</b></span></div>
     <div class="bar"><i style="width:${(r.progress*100).toFixed(1)}%"></i></div>
     <div class="row muted mono" style="font-size:11.5px;margin-top:6px"><span>${esc(r.start)} → ${esc(r.end)}</span><span style="margin-left:auto"><b class="${r.left_h<2?'warn':''}">${fmtH(r.left_h)} restantes</b> de ${fmtH(r.length_h)}</span></div>
-    <div class="row" style="margin-top:10px"><input type="number" step="1" min="1" value="24" style="width:90px" id="ext-${esc(r.id)}"> h
+    ${auditLine(r.id)}
+    <div class="row rw" style="margin-top:10px"><input type="number" step="1" min="1" value="24" style="width:90px" id="ext-${esc(r.id)}"> h
       <button class="small" data-ext="${esc(r.id)}" data-q="1">Cotizar extensión</button>
       <button class="small primary" data-ext="${esc(r.id)}">Extender</button></div>
   </div>`).join('');
@@ -434,6 +473,81 @@ window.addEventListener('resize', ()=>state && drawChart(state.history||[]));
 
 refresh(); loadMarket(); loadLogs();
 setInterval(refresh, 15000); setInterval(loadMarket, 5*60000); setInterval(loadLogs, 60000);
+// ---------------------------------------------------------------- rental audit (audit.py)
+let audit=null;
+const PAL=['#ffb347','#19d7ff','#3cf59a','#ff6bd6','#ffd23f','#a98bff','#ff7a45','#7eeaff','#9be15d','#ff3b5c','#f7931a','#5ad1c8'];
+const VTXT={ok:'cumple',over:'de sobra',short:'corto',nothing:'no llega nada',starting:'arrancando',waiting:'esperando',shared:'worker compartido',none:'sin worker'};
+const VHELP={shared:'Varios alquileres usan el mismo worker y no se pueden separar. Activa audit.assign_workers o dale un worker distinto a cada uno.',
+  starting:'Aún no hay exposición suficiente para juzgar (menos de 10 shares esperadas).',waiting:'El gateway todavía no ha visto este worker.'};
+function auditOf(id){ return audit && audit.rentals && audit.rentals.find(x=>String(x.id)===String(id)); }
+function auditLine(id){
+  const x=auditOf(id); if(!x) return '';
+  const a=x.analysis; if(!a) return '<div class="muted" style="margin-top:8px">auditoría: aún sin worker conocido</div>';
+  return `<div class="row" style="margin-top:8px"><span>llega al gateway <b style="color:var(--accent2)">${a.delivered_th.toFixed(2)} TH/s</b>${a.pct!=null?' ('+a.pct.toFixed(0)+'%)':''}</span>
+    <span class="verd ${a.verdict}" title="${esc(VHELP[a.verdict]||'')}">${VTXT[a.verdict]||a.verdict}</span><span class="muted mono" style="font-size:11.5px">worker ${esc(a.worker)} · ${a.shares} shares de ${Math.round(a.expected_shares)} esperadas</span></div>`;
+}
+function renderAudit(){
+  document.body.classList.toggle('noaudit', !audit || !audit.enabled);
+  if(!audit || !audit.enabled) return;
+  const rs=audit.rentals.slice();
+  const ev=rs.filter(x=>x.analysis && x.analysis.verdict!=='shared');
+  const sum=f=>ev.reduce((s,x)=>s+(f(x)||0),0);
+  const c=sum(x=>x.advertised_th), m=sum(x=>x.mrr_average_th), d=sum(x=>x.analysis.delivered_th);
+  const bad=ev.filter(x=>['short','nothing'].includes(x.analysis.verdict)).length;
+  const shared=rs.length-ev.length;
+  const mx=Math.max(c,m,d,1);
+  const bar=(cls,lab,v)=>`<div class="vb ${cls}"><span>${lab}</span><div class="tr"><i style="width:${(v/mx*100).toFixed(1)}%"></i></div><b>${v.toFixed(1)} TH/s</b></div>`;
+  $('#cotejo').innerHTML = !rs.length ? '<div class="muted">sin rentas activas</div>' : `<div class="big3">
+     <div><div class="muted" style="font-size:12px;letter-spacing:2px;text-transform:uppercase">llega al gateway</div>
+       <div class="n" style="color:var(--accent2);text-shadow:0 0 14px rgba(247,147,26,.6)">${d.toFixed(1)} TH/s</div>
+       <div class="muted">${c?(d/c*100).toFixed(1):'–'}% de lo pagado · ${m?(d/m*100).toFixed(1):'–'}% de lo que dice MRR</div></div>
+     <div class="vbars">${bar('c','pagado',c)}${bar('m','MRR dice',m)}${bar('d','gateway',d)}</div>
+     <div>${bad?`<span class="verd short">${bad} corto${bad>1?'s':''}</span>`:'<span class="verd ok">ninguno corto</span>'}
+       <span class="muted" style="margin-left:8px">${ev.length} medidos${shared?' · '+shared+' con worker compartido':''}</span>
+       ${audit.sync&&audit.sync.error?'<div class="bad" style="margin-top:6px">MRR: '+esc(audit.sync.error)+'</div>':''}</div></div>`;
+  const mx2=Math.max(1,...rs.map(x=>Math.max(x.advertised_th,x.mrr_average_th||0,x.analysis?x.analysis.delivered_th:0)));
+  const b2=(cls,lab,v,ex)=>`<div class="vb ${cls}"><span>${lab}</span><div class="tr"><i style="width:${((v||0)/mx2*100).toFixed(1)}%"></i></div><b>${v==null?'–':v.toFixed(2)}${ex||''}</b></div>`;
+  rs.sort((p,q)=>q.advertised_th-p.advertised_th);
+  $('#verdicts').innerHTML = rs.length? rs.map(x=>{ const a=x.analysis||{verdict:'none'};
+    return `<div class="vrow"><div><b>${esc(x.rig_name||'')}</b><div class="muted mono" style="font-size:11.5px">#${esc(x.id)}${a.worker?' · '+esc(a.worker):''}${a.worker?(a.connected?' · <span class="ok">● minando</span>':' · <span class="bad">● desconectado</span>'):''} · ${fmtH(x.left_h||0)} restantes</div>
+      ${a.partial?'<div class="muted" style="font-size:11.5px">medido desde '+new Date(a.observed_from*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+'</div>':''}</div>
+      <div class="vbars">${b2('c','pagado',x.advertised_th)}${b2('m','MRR dice',x.mrr_average_th)}${b2('d','gateway',a.delivered_th, a.rel_err_pct?' <span class="muted">±'+a.rel_err_pct.toFixed(0)+'%</span>':'')}</div>
+      <div><span class="verd ${a.verdict}" title="${esc(VHELP[a.verdict]||'')}">${VTXT[a.verdict]||a.verdict}</span>${a.z!=null&&Math.abs(a.z)>audit.sigma?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+Math.abs(a.z).toFixed(1)+' sigmas</div>':''}
+        ${a.shares!=null?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+a.shares.toLocaleString()+' / '+Math.round(a.expected_shares).toLocaleString()+' shares</div>':''}</div></div>`;}).join('')
+    : '<div class="muted">sin rentas activas</div>';
+  drawChart2();
+}
+function drawChart2(){
+  if(!audit || !audit.enabled) return;
+  const S=audit.series, cv=$('#chart2'); const dpr=window.devicePixelRatio||1; const W=cv.clientWidth, H=240; cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  const rs=audit.rentals.filter(x=>x.analysis && S.series[x.analysis.worker]).sort((p,q)=>p.advertised_th-q.advertised_th);
+  const seen=new Set(), ws=[];
+  rs.forEach(x=>{ const w=x.analysis.worker; if(!seen.has(w)){ seen.add(w); ws.push({w, name:x.analysis.shared?w+' (compartido)':x.rig_name, th:rs.filter(y=>y.analysis.worker===w).reduce((s,y)=>s+y.advertised_th,0)}); } });
+  if(!ws.length){ ctx.fillStyle='#7f8db0'; ctx.font='12px Rajdhani,system-ui'; ctx.fillText('acumulando muestras…',10,20); return; }
+  const n=S.series[ws[0].w].length, t0=S.t0, B=S.bucket;
+  $('#chart2-info').textContent=`medido en el gateway por shares · tramos de ${B/60} min · ${(n*B/3600).toFixed(0)} h`;
+  if(n<2){ ctx.fillStyle='#7f8db0'; ctx.font='12px Rajdhani,system-ui'; ctx.fillText('acumulando muestras…',10,20); return; }
+  let acc=new Array(n).fill(0); const stack=[];
+  ws.forEach(o=>{ const top=acc.map((v,i)=>v+(S.series[o.w][i]||0)); stack.push(Object.assign({lo:acc,hi:top},o)); acc=top; });
+  const contracted=ws.reduce((s,o)=>s+o.th,0);
+  const max=Math.max(1,...acc,contracted)*1.12, pad={l:52,r:12,t:12,b:24};
+  const x=i=>pad.l+i/(n-1)*(W-pad.l-pad.r), y=v=>H-pad.b-(v/max)*(H-pad.t-pad.b);
+  ctx.strokeStyle='rgba(25,215,255,.12)'; ctx.fillStyle='#7f8db0'; ctx.font='11px "JetBrains Mono",monospace'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){ const v=max*i/4, yy=y(v); ctx.beginPath(); ctx.moveTo(pad.l,yy); ctx.lineTo(W-pad.r,yy); ctx.stroke(); ctx.fillText(v.toFixed(0)+'T',4,yy+4); }
+  const ticks=Math.max(2,Math.min(8,Math.floor(W/110)));
+  for(let k=0;k<=ticks;k++){ const i=Math.round((n-1)*k/ticks), xx=x(i); ctx.fillText(new Date((t0+(i+1)*B)*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}), Math.min(xx-18,W-44), H-7); }
+  stack.forEach((s,k)=>{ const col=PAL[(stack.length-1-k)%PAL.length]; s.col=col;
+    ctx.beginPath(); s.hi.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v))); for(let i=n-1;i>=0;i--) ctx.lineTo(x(i),y(s.lo[i])); ctx.closePath();
+    ctx.globalAlpha=.32; ctx.fillStyle=col; ctx.fill(); ctx.globalAlpha=1;
+    ctx.save(); ctx.shadowColor=col; ctx.shadowBlur=8; ctx.beginPath(); s.hi.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v))); ctx.strokeStyle=col; ctx.lineWidth=1.6; ctx.stroke(); ctx.restore(); });
+  ctx.setLineDash([6,5]); ctx.strokeStyle='rgba(255,255,255,.55)'; ctx.beginPath(); ctx.moveTo(pad.l,y(contracted)); ctx.lineTo(W-pad.r,y(contracted)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle='rgba(255,255,255,.75)'; ctx.fillText('pagado '+contracted.toFixed(0)+' TH/s', W-pad.r-150, y(contracted)-6);
+  $('#chart2-legend').innerHTML=stack.slice().reverse().map(s=>`<span><i style="display:inline-block;width:12px;height:12px;background:${s.col};box-shadow:0 0 8px ${s.col};vertical-align:-2px;margin-right:6px"></i>${esc(s.name||s.w)} <span class="muted">${(S.series[s.w][n-1]||0).toFixed(1)} / ${s.th.toFixed(1)}</span></span>`).join('');
+}
+async function loadAudit(){ try{ audit=await api('/api/audit'); renderAudit(); if(state) renderRentals(state.mrr); }catch(e){ const el=$('#cotejo'); if(el) el.textContent='auditoría no disponible: '+e.message; } }
+window.addEventListener('resize', drawChart2);
+loadAudit(); setInterval(loadAudit, 60000);
 </script>
 </body>
 </html>

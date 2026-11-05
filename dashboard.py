@@ -23,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import mrr_bot  # noqa: E402
+import audit as audit_mod  # noqa: E402
 
 WWW = os.path.join(HERE, "www")
 HISTORY_PATH = os.path.join(HERE, "history.json")
@@ -32,7 +33,9 @@ DASH_DEFAULTS = {
     "dashboard_password": "",
     "own_addresses": [],
     "gateway": GATEWAY,
-    "datum_service": "datum-convoy.service",   # user unit whose journal is shown in the dashboard
+    "datum_service": "datum-convoy.service",   # unit whose journal is shown in the dashboard
+    "datum_service_scope": "user",             # "user" (systemctl --user) or "system"
+    "read_only": False,                        # true: the dashboard never spends or touches the bot
 }
 EDITABLE_KNOBS = {
     "reserve_btc": float, "max_spend_per_run_btc": float, "max_concurrent_rentals": int,
@@ -46,6 +49,8 @@ HISTORY_MAX = 24 * 3600 // GATEWAY_POLL
 
 lock = threading.Lock()
 SESSIONS = {}
+AUDIT = [None]            # audit.Audit instance when enabled
+AUDIT_PREFIX = ["mrr"]
 LOGIN_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MRR Command Center</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600&family=JetBrains+Mono&display=swap">
@@ -183,10 +188,12 @@ def parse_clients(html, own_addresses):
         cells = re.findall(r"<TD>(.*?)</TD>", row, re.S)
         if len(cells) < 2 or "TID/CID" in cells[0]:
             continue
-        tid_cid, rem = strip_tags(cells[0]), strip_tags(cells[1])
+        tid_cid, rem = strip_tags(cells[0]), strip_tags(cells[1]).replace("::ffff:", "")
         kick = re.search(r"tid:(\d+),cid:(\d+),t:(\d+),id:(\d+)", row)
         entry = {"tid_cid": tid_cid, "ip": rem, "host": rdns(rem), "subscribed": False,
-                 "kick": {"tid": int(kick.group(1)), "cid": int(kick.group(2))} if kick else None}
+                 "kick": {"tid": int(kick.group(1)), "cid": int(kick.group(2))} if kick else None,
+                 # unique per connection (thread, client slot, connect time, id): tells reconnections apart
+                 "skey": "_".join(kick.groups()) if kick else None}
         entry["label"] = classify_host(entry["host"], rem)
         if len(cells) < 9 or "Not Subscribed" in cells[2]:
             clients.append(entry)
@@ -199,6 +206,8 @@ def parse_clients(html, own_addresses):
         rej = re.match(r"([\d.]+[KMGTPE]?)\s*\((\d+)\)\s*([\d.]+)%", strip_tags(cells[7]))
         hr = strip_tags(cells[8])
         hr_m = re.match(r"(.*?h/s)\s*\(([\d.]+)s\)", hr, re.I)
+        if not entry["label"] and re.fullmatch(re.escape(AUDIT_PREFIX[0]) + r"\d+", worker or ""):
+            entry["label"] = "MRR proxy"   # worker given by the audit; the proxies' rDNS is not always set
         entry.update({
             "subscribed": True, "user": user, "address": addr, "worker": worker,
             "own": (addr in own_addresses) if own_addresses else None,
@@ -247,6 +256,11 @@ def poll_gateway():
         err = None
     except Exception as e:
         data, err = None, str(e)
+    if data and AUDIT[0]:
+        try:
+            AUDIT[0].record(clients, GATEWAY_POLL)
+        except Exception as e:
+            print(f"[audit record failed: {e}]", file=sys.stderr, flush=True)
     with lock:
         cache["gateway"] = {"at": time.time(), "data": data, "error": err}
         if data:
@@ -311,6 +325,9 @@ def mrr_overview(force=False):
                 "rpi": d["rig"].get("rpi"), "advertised": d["hashrate"]["advertised"]["nice"],
                 "advertised_th": mrr_bot.to_th(d["hashrate"]["advertised"]),
                 "average": avg.get("nice"), "average_pct": avg.get("percent"),
+                "average_th": mrr_bot.to_th(avg) if avg else None,
+                "start_unix": int(mrr_bot.parse_mrr_time(d["start"]).timestamp()),
+                "end_unix": int(mrr_bot.parse_mrr_time(d["end"]).timestamp()),
                 "start": d.get("start"), "end": d.get("end"), "length_h": length, "left_h": max(0.0, left),
                 "progress": max(0.0, min(1.0, 1 - left / length)) if length else 0,
                 "paid": d["price"].get("paid"), "currency": d["price"].get("currency"),
@@ -445,7 +462,8 @@ def bot_log(lines=80):
 
 def gateway_log(lines=40):
     unit = cfg().get("datum_service") or DASH_DEFAULTS["datum_service"]
-    r = subprocess.run(["journalctl", "--user", "-u", unit, "-n", "400", "--no-pager", "-o", "short-iso"],
+    scope = ["--user"] if (cfg().get("datum_service_scope") or "user") == "user" else []
+    r = subprocess.run(["journalctl", *scope, "-u", unit, "-n", "400", "--no-pager", "-o", "short-iso"],
                        capture_output=True, text=True, timeout=20)
     keep = [l for l in r.stdout.splitlines()
             if re.search(r"INFO|WARN|ERROR|FATAL|New client \(|Kicking client|closed\.", l) and "datum_api_answer" not in l]
@@ -557,7 +575,13 @@ class Handler(BaseHTTPRequestHandler):
                     "config": {k: c.get(k) for k in EDITABLE_KNOBS},
                     "profile_id": c.get("profile_id"), "own_addresses": c.get("own_addresses"),
                     "datum_service": c.get("datum_service"),
+                    "read_only": bool(c.get("read_only")),
                 })
+            if url.path == "/api/audit":
+                if not AUDIT[0]:
+                    return self._json({"enabled": False})
+                mrr, mrr_err = mrr_overview()
+                return self._json(dict(AUDIT[0].view((mrr or {}).get("rentals") or []), enabled=True, mrr_error=mrr_err))
             if url.path == "/api/market":
                 b = q.get("budget", [None])[0]
                 return self._json(market_view(float(b) if b else None))
@@ -580,6 +604,9 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self._json({"error": "bad json"}, 400)
         try:
+            if cfg().get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent") or (
+                    self.path == "/api/extend" and not body.get("quote_only"))):
+                return self._json({"ok": False, "error": "read-only dashboard (read_only in config.json)"}, 403)
             if self.path == "/api/bot":
                 action = body.get("action")
                 if action == "enable":
@@ -609,6 +636,14 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     raw = ensure_dashboard_config()
     load_history()
+    c = cfg()
+    a = audit_mod.settings(c)
+    if a["enabled"]:
+        AUDIT[0] = audit_mod.Audit(HERE, c)
+        AUDIT_PREFIX[0] = a["worker_prefix"]
+        if c.get("api_key") and c.get("api_secret"):
+            threading.Thread(target=audit_mod.sync_loop, daemon=True,
+                             args=(AUDIT[0], lambda: mrr_api(cfg()), lambda api: mrr_bot.save_state(api.state))).start()
     threading.Thread(target=gateway_loop, daemon=True).start()
     port = int(raw.get("dashboard_port") or 7160)
     srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
