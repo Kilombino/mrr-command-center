@@ -32,6 +32,7 @@ DASH_DEFAULTS = {
     "dashboard_password": "",
     "own_addresses": [],
     "gateway": GATEWAY,
+    "datum_service": "datum-convoy.service",   # user unit whose journal is shown in the dashboard
 }
 EDITABLE_KNOBS = {
     "reserve_btc": float, "max_spend_per_run_btc": float, "max_concurrent_rentals": int,
@@ -82,6 +83,7 @@ def ensure_dashboard_config():
     raw.setdefault("dashboard_port", 7160)
     raw.setdefault("own_addresses", [])
     raw.setdefault("gateway", dict(GATEWAY))
+    raw.setdefault("datum_service", DASH_DEFAULTS["datum_service"])
     if changed or "dashboard_port" not in raw:
         with open(mrr_bot.CONFIG_PATH, "w") as f:
             json.dump(raw, f, indent=1)
@@ -442,7 +444,8 @@ def bot_log(lines=80):
 
 
 def gateway_log(lines=40):
-    r = subprocess.run(["journalctl", "--user", "-u", "datum-convoy.service", "-n", "400", "--no-pager", "-o", "short-iso"],
+    unit = cfg().get("datum_service") or DASH_DEFAULTS["datum_service"]
+    r = subprocess.run(["journalctl", "--user", "-u", unit, "-n", "400", "--no-pager", "-o", "short-iso"],
                        capture_output=True, text=True, timeout=20)
     keep = [l for l in r.stdout.splitlines()
             if re.search(r"INFO|WARN|ERROR|FATAL|New client \(|Kicking client|closed\.", l) and "datum_api_answer" not in l]
@@ -553,6 +556,7 @@ class Handler(BaseHTTPRequestHandler):
                     "bot": dict(bot_state(), actions=st.get("actions", [])[-15:]),
                     "config": {k: c.get(k) for k in EDITABLE_KNOBS},
                     "profile_id": c.get("profile_id"), "own_addresses": c.get("own_addresses"),
+                    "datum_service": c.get("datum_service"),
                 })
             if url.path == "/api/market":
                 b = q.get("budget", [None])[0]

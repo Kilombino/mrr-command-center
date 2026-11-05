@@ -1,0 +1,9 @@
+[Unit]
+Description=MRR Blake2B rental bot (one pass: extend/rent within budget)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/mrr-bot
+ExecStart=/usr/bin/python3 -I %h/mrr-bot/mrr_bot.py run --live
+TimeoutStartSec=300

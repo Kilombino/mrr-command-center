@@ -3,21 +3,33 @@
  "api_secret": "YOUR_MRR_API_SECRET",
  "algo": "blake2b",
  "currency": "BTC",
- "profile_id": 977001,
+ "profile_id": 0,
  "reserve_btc": 0.0,
  "max_spend_per_run_btc": 0.002,
  "max_concurrent_rentals": 1,
  "max_hours": 240,
  "min_hours": 3,
  "min_rpi": 85,
+ "allow_new_rigs": false,
  "min_perf_ratio": 0.75,
  "max_price_premium": 1.25,
  "price_tolerance": 0.05,
+ "fee_rate": 0.03,
  "extend_window_hours": 2.0,
  "excluded_regions": [],
  "excluded_rigs": [],
  "telegram": {
   "token": "",
   "chat_id": ""
- }
+ },
+
+ "dashboard_port": 7160,
+ "dashboard_password": "",
+ "own_addresses": [],
+ "gateway": {
+  "url": "http://127.0.0.1:7158",
+  "user": "oracle",
+  "password": "YOUR_DATUM_GATEWAY_ADMIN_PASSWORD"
+ },
+ "datum_service": "datum-convoy.service"
 }

@@ -1,4 +1,7 @@
 config.json
 state.json
 state.json.tmp
+history.json
+history.json.tmp
+.mrr.lock
 __pycache__/

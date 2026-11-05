@@ -252,7 +252,7 @@ dialog b{font-family:var(--display);font-size:14px;letter-spacing:.5px}
     <h2>Logs <span class="right"><button id="btn-logs" class="small">Actualizar</button></span></h2>
     <div class="row" style="align-items:flex-start">
       <div style="flex:1;min-width:300px"><div class="section-num" style="margin-bottom:5px">// mrr-bot.service</div><div id="log-bot" class="log"></div></div>
-      <div style="flex:1;min-width:300px"><div class="section-num" style="margin-bottom:5px">// datum-convoy.service</div><div id="log-gw" class="log"></div></div>
+      <div style="flex:1;min-width:300px"><div class="section-num" style="margin-bottom:5px" id="log-gw-title">// datum gateway</div><div id="log-gw" class="log"></div></div>
     </div>
   </section>
 </main>
@@ -286,6 +286,7 @@ function pill(id, text, cls){ const e=$(id); e.innerHTML=text; e.className='pill
 function render(d){
   state = d;
   const gw = d.gateway, mrr = d.mrr, bot = d.bot;
+  if(d.datum_service) document.getElementById('log-gw-title').textContent = '// '+d.datum_service;
   // pills
   if(gw){ const st=(gw.status.status||'').toLowerCase(); pill('#p-gw', 'gateway: <b>'+esc(gw.status.status||'?')+'</b>', st.includes('ready')||st.includes('connected')?'ok':'warn');
           pill('#p-pool', 'pool: <b>'+esc(gw.status.pool_host||'?')+'</b> · shares '+esc(gw.status.pool_shares_accepted).split('(')[0].trim()+'/'+esc(gw.status.pool_shares_rejected).split('(')[0].trim(), ''); }
