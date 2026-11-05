@@ -38,6 +38,11 @@ DASH_DEFAULTS = {
     "read_only": False,                        # true: the dashboard never spends or touches the bot
     "bot_ui": True,                            # false: no bot controls, history or log (manual renting only)
     "rent_address": "",                        # payout address for rentals made here ("" = the profile's)
+    "coin_label": "BTC",                       # how the dashboard names MRR's currency...
+    "unit_label": "sats",                      # ...and its hundred-millionth
+    # optional second unit for prices: {"label": "...", "url": "...", "path": "a.b", "invert": false}
+    # the JSON value at `path` is how many of that coin one MRR coin buys (invert: the reverse)
+    "alt_price": {},
 }
 EDITABLE_KNOBS = {
     "reserve_btc": float, "max_spend_per_run_btc": float, "max_concurrent_rentals": int,
@@ -337,6 +342,7 @@ def mrr_overview(force=False):
                 "progress": max(0.0, min(1.0, 1 - left / length)) if length else 0,
                 "paid": d["price"].get("paid"), "currency": d["price"].get("currency"),
                 "maxhours": d["rig"].get("maxhours"), "ended": d.get("ended"),
+                "extensions": bool(d["rig"].get("extensions")),
             })
         data = {"balance": {"confirmed": confirmed, "unconfirmed": unconfirmed, "currency": c["currency"]},
                 "market": {"last_10": float(stats["prices"]["last_10"]["amount"]),
@@ -356,6 +362,62 @@ def mrr_overview(force=False):
         else:
             cache["mrr"]["error"] = err
         return cache["mrr"]["data"], cache["mrr"]["error"]
+
+
+_alt = {"at": 0, "rate": None, "error": None}
+_graphs = {}
+
+
+def alt_rate():
+    """How many coins of the optional second unit one MRR coin buys, cached 10 min (None if unset)."""
+    a = cfg().get("alt_price") or {}
+    if not a.get("url"):
+        return None, None
+    if time.time() - _alt["at"] < 600:
+        return _alt["rate"], _alt["error"]
+    try:
+        req = urllib.request.Request(a["url"], headers={"User-Agent": "mrr-dashboard/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            v = json.load(r)
+        for k in (a.get("path") or "").split("."):
+            if k:
+                v = v[k]
+        v = float(v)
+        rate = (1 / v) if a.get("invert") else v
+        _alt.update(at=time.time(), rate=rate if rate > 0 else None, error=None)
+    except Exception as e:
+        _alt.update(at=time.time(), error=str(e)[:120])
+    return _alt["rate"], _alt["error"]
+
+
+def rig_graph(rig_id, hours=24, points=48):
+    """A rig's recent hashrate from MRR (TH/s), averaged into `points` buckets, cached 10 min."""
+    key = (int(rig_id), int(hours))
+    hit = _graphs.get(key)
+    if hit and time.time() - hit[0] < 600:
+        return hit[1]
+    api = mrr_api(cfg())
+    g = api.call("GET", f"/rig/{key[0]}/graph", {"hours": key[1], "deflation": "true"})
+    mrr_bot.save_state(api.state)
+    cd = g.get("chartdata") or {}
+    bars = json.loads("[" + (cd.get("bars") or "") + "]")
+    t0, t1 = int(cd.get("timestamp_start") or 0), int(cd.get("timestamp_end") or 0)
+    out = []
+    if bars and t1 > t0:
+        step = (t1 - t0) / points
+        sums = [[0.0, 0] for _ in range(points)]
+        for ms, h in bars:
+            i = min(points - 1, max(0, int((ms / 1000 - t0) / step)))
+            sums[i][0] += float(h)
+            sums[i][1] += 1
+        out = [round(s / n / 1e12, 3) if n else None for s, n in sums]
+    res = {"rig": key[0], "hours": key[1], "t0": t0, "t1": t1, "th": out,
+           "advertised_th": None, "at": time.time()}
+    _graphs[key] = (time.time(), res)
+    if len(_graphs) > 300:
+        for k in sorted(_graphs, key=lambda k: _graphs[k][0])[:100]:
+            _graphs.pop(k, None)
+    return res
 
 
 def market_view(budget=None):
@@ -625,6 +687,9 @@ class Handler(BaseHTTPRequestHandler):
                     "datum_service": c.get("datum_service"),
                     "read_only": bool(c.get("read_only")), "bot_ui": bool(c.get("bot_ui")),
                     "rent_address": c.get("rent_address") or "",
+                    "labels": {"coin": c.get("coin_label") or "BTC", "unit": c.get("unit_label") or "sats",
+                               "alt": (c.get("alt_price") or {}).get("label")},
+                    "alt_rate": alt_rate()[0],
                 })
             if url.path == "/api/audit":
                 if not AUDIT[0]:
@@ -634,6 +699,8 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/market":
                 b = q.get("budget", [None])[0]
                 return self._json(market_view(float(b) if b else None))
+            if url.path == "/api/rig-graph":
+                return self._json(rig_graph(int(q["id"][0]), int(q.get("hours", ["24"])[0])))
             if url.path == "/api/plan" and cfg().get("bot_ui"):
                 return self._json(plan_view())
             if url.path == "/api/log":

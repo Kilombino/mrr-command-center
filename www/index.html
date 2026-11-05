@@ -128,7 +128,12 @@ input[type=number]::-webkit-inner-spin-button{opacity:.5}
   clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px))}
 .toast.bad{border-left-color:var(--bad);box-shadow:0 10px 40px #000c,0 0 20px rgba(255,59,92,.3)}
 canvas{width:100%;height:200px;display:block}
-.scroll{overflow:auto;max-height:440px}
+.scroll{overflow:auto;max-height:70vh;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#2f4572 transparent}
+.scroll::-webkit-scrollbar-thumb{background:#2f4572}
+canvas.spark{width:150px;height:34px;display:block}
+#t-market td.nm{max-width:230px;overflow:hidden;text-overflow:ellipsis}
+#t-market td,#t-market th{padding:8px 7px}
+.flag{font-size:17px;vertical-align:-2px;margin-right:5px}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
 .switch{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-weight:600;letter-spacing:.5px}
 .switch i{width:44px;height:22px;border-radius:2px;background:#131b2d;border:1px solid var(--line2);position:relative;transition:.2s}
@@ -252,7 +257,6 @@ body.nobot #hashcard{grid-column:span 12}
   <section class="card span12"><i class="corner tr"></i><i class="corner bl"></i>
     <h2>ASICs en nuestro gateway <span class="right" id="asics-info"></span></h2>
     <div class="scroll"><table id="t-clients"><thead><tr>
-      <th title="TID/CID: hilo del gateway / nº de cliente dentro de ese hilo">Cliente</th>
       <th title="IP pública del minero (o del proxy que lo representa) y su DNS inverso">Origen</th>
       <th title="Dirección BTC que el minero envía como usuario stratum: a ella paga la pool (propia = está en own_addresses)">Pago a</th>
       <th title="Sufijo tras el punto en el usuario stratum (nombre del worker)">Worker</th>
@@ -294,7 +298,7 @@ body.nobot #hashcard{grid-column:span 12}
     <div class="muted rw" style="font-size:12.5px;margin:-4px 0 10px">Cada alquiler mina como <span class="mono">address.mrr&lt;número de alquiler&gt;</span>: un worker propio desde el primer minuto, para que el cotejo lo separe de los demás.</div>
     <div id="mkt-best" class="muted" style="margin-bottom:10px"></div>
     <div class="scroll"><table id="t-market"><thead><tr>
-      <th>Rig</th><th>Nombre</th><th>Región</th><th>TH</th><th title="Rig Performance Index de MRR (100 = cumple lo anunciado)">RPI</th><th title="Rendimiento real de los últimos 30 min vs. anunciado">Perf</th><th title="Precio del rig en sats (de la moneda de MRR) por TH y día">sats/TH/día</th><th>BTC/h (con fee)</th><th>Horas min–max</th><th title="Horas que paga el presupuesto">Alcanza</th><th title="TH·h totales que compra el presupuesto">TH·h</th><th></th>
+      <th>Rig</th><th>Nombre</th><th>Región</th><th>TH</th><th title="Rig Performance Index de MRR (100 = cumple lo anunciado)">RPI</th><th title="Rendimiento real de los últimos 30 min vs. anunciado">Perf</th><th title="Hashrate que ha dado el rig en las últimas 24 h según MRR; la línea discontinua es lo anunciado">Últimas 24 h</th><th id="mkt-unit-h" title="Precio por TH y día">sats/TH/día</th><th id="mkt-coin-h">BTC/h (con fee)</th><th>Horas min–max</th><th></th>
     </tr></thead><tbody></tbody></table></div>
   </section>
 
@@ -317,6 +321,14 @@ const fmtTh = x => x>=1000 ? (x/1000).toFixed(2)+' PH/s' : x>=1 ? x.toFixed(2)+'
 const fmtH = h => h>=48 ? (h/24).toFixed(1)+' d' : h.toFixed(1)+' h';
 const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let state = null, toastT = null;
+const L = ()=> (state && state.labels) || {coin:'BTC', unit:'sats'};
+const units = x => Math.round(x*1e8).toLocaleString();
+const altOf = coin => (state && state.alt_rate && L().alt) ? Math.round(coin*state.alt_rate*1e8).toLocaleString()+' '+L().alt : '';
+const FLAGS = {us:'🇺🇸',ca:'🇨🇦',eu:'🇪🇺',de:'🇩🇪',fi:'🇫🇮',pl:'🇵🇱',fr:'🇫🇷',nl:'🇳🇱',gb:'🇬🇧',uk:'🇬🇧',ru:'🇷🇺',se:'🇸🇪',no:'🇳🇴',es:'🇪🇸',it:'🇮🇹',ch:'🇨🇭',cz:'🇨🇿',ua:'🇺🇦',
+  hk:'🇭🇰',jp:'🇯🇵',cn:'🇨🇳',kr:'🇰🇷',sg:'🇸🇬',in:'🇮🇳',au:'🇦🇺',br:'🇧🇷',ar:'🇦🇷',za:'🇿🇦',ap:'🌏',sa:'🌎',af:'🌍'};
+function flag(region){ const r=String(region||'').toLowerCase(), [a,b]=r.split('-');
+  const f = a==='us' ? FLAGS.us : (b && FLAGS[b]) || FLAGS[a] || '🏳️';
+  return `<span class="flag" title="${esc(region)}">${f}</span>${esc(region)}`; }
 
 setInterval(()=>{ $('#clock').textContent = new Date().toLocaleTimeString([], {hour12:false}); }, 1000);
 
@@ -360,10 +372,12 @@ function render(d){
     $('#k-rentals').textContent = r.length;
     $('#k-rentals-s').textContent = r.length ? r.map(x=>x.advertised+' · '+fmtH(x.left_h)+' restantes').join(' | ') : 'ninguna';
     $('#k-bal').textContent = fmtBtc(mrr.balance.confirmed);
-    $('#k-bal-s').textContent = 'sin confirmar '+fmtBtc(mrr.balance.unconfirmed)+' · reserva '+fmtBtc(d.config.reserve_btc);
-    const sats=x=>Math.round(x*1e8).toLocaleString();
-    $('#k-mkt').textContent = sats(mrr.market.last_10);
-    $('#k-mkt-s').textContent = 'sats/TH/día · mín '+sats(mrr.market.lowest)+' · '+mrr.market.available_rigs+' rigs / '+mrr.market.available_hash+' libres';
+    $('#k-bal-s').textContent = L().coin+' · sin confirmar '+fmtBtc(mrr.balance.unconfirmed);
+    const u=L().unit, alt=altOf(mrr.market.last_10);
+    $('#k-mkt').textContent = units(mrr.market.last_10);
+    $('#k-mkt-s').textContent = u+'/TH/día'+(alt?' ≈ '+alt+'/TH/día':'')+' · mín '+units(mrr.market.lowest)+' · '+mrr.market.available_rigs+' rigs / '+mrr.market.available_hash+' libres';
+    $('#mkt-unit-h').textContent = u+'/TH/día'; $('#mkt-coin-h').textContent = L().coin+'/h (con fee)';
+    $('#k-mkt').title = alt ? '≈ '+alt+' por TH y día' : '';
   }
   // bot
   const sw=$('#sw-timer'); sw.className='switch'+(bot.timer_enabled?' on':''); $('#sw-label').textContent = bot.timer_enabled?'timer activo (cada 15 min)':'timer apagado';
@@ -378,15 +392,14 @@ function render(d){
 }
 
 function renderClients(gw, own){
-  const tb=$('#t-clients tbody'); if(!gw){ tb.innerHTML='<tr><td colspan="11" class="muted">gateway no disponible</td></tr>'; return; }
+  const tb=$('#t-clients tbody'); if(!gw){ tb.innerHTML='<tr><td colspan="10" class="muted">gateway no disponible</td></tr>'; return; }
   const maxTh = Math.max(0.001, ...gw.clients.map(c=>c.hashrate_th||0));
   const rows = gw.clients.map(c=>{
-    if(!c.subscribed) return `<tr class="muted"><td class="mono">${esc(c.tid_cid)}</td><td class="mono">${esc(c.ip)}<br><small>${esc(c.host)}</small></td><td colspan="8"><span class="tag idle" title="Abrió el socket pero nunca mandó mining.subscribe: suele ser un escáner o sonda, no un ASIC minando">sin suscribir</span> ${esc(c.label)}</td><td>${c.kick?`<button class="small danger" data-kick='${JSON.stringify(c.kick)}'>Kick</button>`:''}</td></tr>`;
+    if(!c.subscribed) return `<tr class="muted"><td class="mono">${esc(c.ip)}<br><small>${esc(c.host)}</small></td><td colspan="8"><span class="tag idle" title="Abrió el socket pero nunca mandó mining.subscribe: suele ser un escáner o sonda, no un ASIC minando">sin suscribir</span> ${esc(c.label)}</td><td>${c.kick?`<button class="small danger" data-kick='${JSON.stringify(c.kick)}'>Kick</button>`:''}</td></tr>`;
     const ownTag = c.own===true ? '<span class="tag own">propia</span>' : c.own===false ? '<span class="tag foreign">AJENA</span>' : '';
     const lbl = c.label ? `<span class="tag ${c.label==='MRR proxy'?'mrr':c.label==='PyBLOCK rental'?'pyb':''}">${esc(c.label)}</span>` : '';
     const pct = Math.round((c.hashrate_th||0)/maxTh*100);
     return `<tr>
-      <td class="mono">${esc(c.tid_cid)}</td>
       <td class="mono">${esc(c.ip)}<br><small class="muted">${esc(c.host)}</small> ${lbl}</td>
       <td class="mono" title="${esc(c.address)}">${esc(c.address.slice(0,10))}…${esc(c.address.slice(-6))} ${ownTag}</td>
       <td>${esc(c.worker)||'<span class="muted">–</span>'}</td>
@@ -394,11 +407,11 @@ function renderClients(gw, own){
       <td>${c.shares_accepted} <small class="muted">(${esc(c.diff_accepted)})</small> / <span class="${c.shares_rejected?'bad':''}">${c.shares_rejected}</span> <small class="muted">${c.reject_pct}%</small></td>
       <td class="mono">${esc(c.vdiff)}</td>
       <td>${esc(c.last_accepted)}</td>
-      <td class="mono">${esc(c.session)} <small class="muted">${c.subbed_s!=null?fmtH(c.subbed_s/3600):''}</small></td>
+      <td class="mono" title="hilo/conexión del gateway ${esc(c.tid_cid)}">${esc(c.session)} <small class="muted">${c.subbed_s!=null?fmtH(c.subbed_s/3600):''}</small></td>
       <td>${esc(c.useragent)} <small class="muted">${esc(c.coinbase)}</small></td>
       <td>${c.kick?`<button class="small danger" data-kick='${JSON.stringify(c.kick)}'>Kick</button>`:''}</td></tr>`;
   });
-  tb.innerHTML = rows.join('') || '<tr><td colspan="11" class="muted">ningún cliente conectado</td></tr>';
+  tb.innerHTML = rows.join('') || '<tr><td colspan="10" class="muted">ningún cliente conectado</td></tr>';
   $('#asics-info').textContent = gw.subscribed+' suscritos · '+fmtTh(gw.total_th)+' · '+new Date(gw.at*1000).toLocaleTimeString();
   tb.querySelectorAll('button[data-kick]').forEach(b=>b.onclick=async()=>{
     const k=JSON.parse(b.dataset.kick);
@@ -455,21 +468,44 @@ async function loadMarket(){
   const b=$('#mkt-budget').value; $('#mkt-best').textContent='cargando mercado…';
   try{
     const m = await api('/api/market'+(b?'?budget='+b:''));
-    $('#mkt-best').innerHTML = m.best ? `Con <b>${fmtBtc(m.budget)} BTC</b> la mejor compra ahora: <b>${esc(m.best.name)}</b> ${m.best.adv_th.toFixed(2)} TH × ${m.best.hours.toFixed(1)} h = <b>${m.best.th_hours.toFixed(0)} TH·h</b> por ${fmtBtc(m.best.cost)} BTC (fee incluida)` : `Con ${fmtBtc(m.budget)} BTC no alcanza el mínimo de ningún rig usable.`;
+    const C=L().coin;
+    $('#mkt-best').innerHTML = m.best ? `Saldo para alquilar: <b>${fmtBtc(m.budget)} ${esc(C)}</b>. Lo que más TH·h da ahora: <b>${esc(m.best.name)}</b> ${m.best.adv_th.toFixed(2)} TH × ${m.best.hours.toFixed(1)} h por ${fmtBtc(m.best.cost)} ${esc(C)} (fee incluida)` : `Con ${fmtBtc(m.budget)} ${esc(C)} no alcanza el mínimo de ningún rig usable.`;
     $('#t-market tbody').innerHTML = m.rigs.map(r=>`<tr class="${r.affordable?'':'muted'}">
-      <td class="mono"><a href="https://www.miningrigrentals.com/rigs/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.id)}</a></td><td>${esc(r.name)}</td><td>${esc(r.region)}</td>
+      <td class="mono"><a href="https://www.miningrigrentals.com/rigs/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.id)}</a></td><td class="nm" title="${esc(r.name)}">${esc(r.name)}</td><td>${flag(r.region)}</td>
       <td>${r.adv_th.toFixed(2)}</td><td>${r.rpi.toFixed(0)}</td><td>${r.perf!=null?(r.perf*100).toFixed(0)+'%':'–'}</td>
-      <td class="mono">${Math.round(r.price_th_day*1e8).toLocaleString()}</td><td class="mono">${r.hour_cost_total.toFixed(9)}</td><td>${r.minh}–${r.maxh}</td>
-      <td>${r.afford_h} h</td><td>${r.afford_thh}</td>
+      <td><canvas class="spark" data-rig="${esc(r.id)}" data-adv="${r.adv_th}"></canvas></td>
+      <td class="mono" title="${esc(altOf(r.price_th_day))}">${units(r.price_th_day)}</td><td class="mono">${r.hour_cost_total.toFixed(9)}</td><td>${r.minh}–${r.maxh} h</td>
       <td><div class="row" style="flex-wrap:nowrap"><input type="number" step="1" value="${Math.max(r.minh, Math.floor(r.afford_h))}" style="width:70px" id="rh-${esc(r.id)}"><button class="small primary" data-rent="${esc(r.id)}" data-name="${esc(r.name)}" data-hc="${r.hour_cost_total}" data-th="${r.adv_th}">Rentar</button></div></td></tr>`).join('');
+    loadSparks();
     $('#t-market tbody').querySelectorAll('button[data-rent]').forEach(b=>b.onclick=async()=>{
       const id=b.dataset.rent, hours=parseFloat($('#rh-'+id).value), cost=hours*parseFloat(b.dataset.hc);
       const addr=state?.rent_address;
-      if(!await confirmDlg(`<b>Alquilar rig ${id} "${esc(b.dataset.name)}"</b><p>${parseFloat(b.dataset.th).toFixed(2)} TH durante <b>${hours} h</b> = ${(hours*parseFloat(b.dataset.th)).toFixed(0)} TH·h<br>Coste estimado: <b>${fmtBtc(cost)} BTC</b> (fee incluida), del saldo confirmado de MRR.</p>
+      if(!await confirmDlg(`<b>Alquilar rig ${id} "${esc(b.dataset.name)}"</b><p>${parseFloat(b.dataset.th).toFixed(2)} TH durante <b>${hours} h</b> = ${(hours*parseFloat(b.dataset.th)).toFixed(0)} TH·h<br>Coste estimado: <b>${fmtBtc(cost)} ${esc(L().coin)}</b> (fee incluida), del saldo confirmado de MRR.</p>
         <p>Mina a tu gateway (perfil ${esc(state?.profile_id)}) como <span class="mono">${addr?esc(addr):'address del perfil'}.mrr&lt;número de alquiler&gt;</span>.</p><p class="muted">Solo se alquila si confirmas. No hay nada automático.</p>`)) return;
       try{ const r=await api('/api/rent',{rig:id,hours}); toast(r.summary); refresh(true); loadMarket(); loadAudit(); }catch(e){ toast(e.message,true); }
     });
   }catch(e){ $('#mkt-best').textContent='error: '+e.message; }
+}
+
+// Recent hashrate of each market rig (MRR's graph), drawn as a sparkline, a few at a time.
+let sparkRun = 0;
+async function loadSparks(){
+  const run = ++sparkRun, cvs=[...document.querySelectorAll('canvas.spark')];
+  const one = async cv=>{ if(run!==sparkRun) return;
+    try{ const g=await api('/api/rig-graph?id='+cv.dataset.rig); drawSpark(cv, g.th, parseFloat(cv.dataset.adv)); }
+    catch(e){ cv.title='sin datos: '+e.message; } };
+  for(let i=0;i<cvs.length;i+=4) await Promise.all(cvs.slice(i,i+4).map(one));
+}
+function drawSpark(cv, th, adv){
+  const dpr=window.devicePixelRatio||1, W=150, H=34; cv.width=W*dpr; cv.height=H*dpr; const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+  const vals=th.filter(v=>v!=null); if(!vals.length){ ctx.fillStyle='#4f5c7c'; ctx.font='10px Rajdhani'; ctx.fillText('sin datos',4,20); return; }
+  const max=Math.max(adv||0,...vals)*1.1||1, n=th.length, x=i=>2+i/(n-1)*(W-4), y=v=>H-2-(v/max)*(H-4);
+  if(adv){ ctx.setLineDash([3,3]); ctx.strokeStyle='rgba(255,255,255,.35)'; ctx.beginPath(); ctx.moveTo(0,y(adv)); ctx.lineTo(W,y(adv)); ctx.stroke(); ctx.setLineDash([]); }
+  const avg=vals.reduce((s,v)=>s+v,0)/vals.length, col=!adv||avg>=adv*0.9?'#3cf59a':avg>=adv*0.7?'#ffd23f':'#ff3b5c';
+  ctx.beginPath(); let started=false; th.forEach((v,i)=>{ if(v==null){ started=false; return; } started?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)); started=true; });
+  ctx.strokeStyle=col; ctx.lineWidth=1.4; ctx.shadowColor=col; ctx.shadowBlur=5; ctx.stroke(); ctx.shadowBlur=0;
+  const last=vals[vals.length-1], up=vals.filter(v=>v>0).length/n;
+  cv.title=`media ${avg.toFixed(2)} TH/s${adv?' ('+Math.round(avg/adv*100)+'% de lo anunciado)':''} · ahora ${last.toFixed(2)} TH/s · con hashrate el ${Math.round(up*100)}% del tiempo`;
 }
 
 async function loadLogs(){ try{ const l=await api('/api/log'); $('#log-bot').textContent=l.bot.join('\n')||'(vacío)'; $('#log-gw').textContent=l.gateway.join('\n')||'(vacío)'; const a=$('#log-bot'); a.scrollTop=a.scrollHeight; const g=$('#log-gw'); g.scrollTop=g.scrollHeight; }catch(e){ toast(e.message,true);} }
@@ -493,7 +529,7 @@ $('#btn-addr').onclick = async()=>{ const v=$('#rent-addr').value.trim();
 $('#btn-logs').onclick = loadLogs;
 window.addEventListener('resize', ()=>state && drawChart(state.history||[]));
 
-refresh(); loadMarket(); loadLogs();
+refresh().then(loadMarket); loadLogs();
 setInterval(refresh, 15000); setInterval(loadMarket, 5*60000); setInterval(loadLogs, 60000);
 // ---------------------------------------------------------------- rental audit (audit.py)
 let audit=null;
@@ -537,8 +573,10 @@ function renderAudit(){
       <div class="vexp"><span>esperado <b>${x.advertised_th.toFixed(2)} TH/s</b></span><span>recibido <b class="got">${got!=null?got.toFixed(2)+' TH/s':'–'}</b>${pct!=null?' <span class="muted">('+pct.toFixed(0)+'%)</span>':''}</span></div>
       ${x.address?'<div class="addr" title="address a la que mina este alquiler">→ '+esc(x.address)+'</div>':''}
       ${a.partial?'<div class="muted" style="font-size:11.5px">medido desde '+new Date(a.observed_from*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+'</div>':''}
-      <div class="row rw" style="margin-top:6px;flex-wrap:nowrap"><input type="number" step="1" min="1" value="24" style="width:70px" id="vext-${esc(x.id)}"><span class="muted">h</span>
-        <button class="small" data-vext="${esc(x.id)}" data-q="1">Cotizar</button><button class="small primary" data-vext="${esc(x.id)}">Extender</button></div></div>
+      ${(()=>{ const room=(x.max_h!=null&&x.length_h!=null)?Math.floor(parseFloat(x.max_h)-x.length_h):null;
+         const why=!x.extensions?'El dueño del rig no permite extender':(room!=null&&room<1)?'Ya está en el máximo de horas del rig ('+x.max_h+' h)':'';
+         return `<div class="row rw" style="margin-top:6px;flex-wrap:nowrap" title="${esc(why)}"><input type="number" step="1" min="1" ${room?'max="'+room+'"':''} value="${room?Math.min(24,room):24}" style="width:70px" id="vext-${esc(x.id)}" ${why?'disabled':''}><span class="muted">h</span>
+        <button class="small primary" data-vext="${esc(x.id)}" ${why?'disabled':''}>Extender</button>${why?'<span class="muted" style="font-size:11.5px">'+esc(why)+'</span>':room!=null?'<span class="muted" style="font-size:11.5px">hasta '+room+' h más</span>':''}</div>`; })()}</div>
       <div class="vbars">${b2('c','pagado',x.advertised_th)}${b2('m','MRR dice',x.mrr_average_th)}${b2('d','gateway',a.delivered_th, a.rel_err_pct?' <span class="muted">±'+a.rel_err_pct.toFixed(0)+'%</span>':'')}</div>
       <div><span class="verd ${a.verdict}" title="${esc(VHELP[a.verdict]||'')}">${VTXT[a.verdict]||a.verdict}</span>${a.z!=null&&Math.abs(a.z)>audit.sigma?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+Math.abs(a.z).toFixed(1)+' sigmas</div>':''}
         ${a.shares!=null?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+a.shares.toLocaleString()+' / '+Math.round(a.expected_shares).toLocaleString()+' shares</div>':''}</div></div>`;}).join('')
@@ -547,8 +585,7 @@ function renderAudit(){
     const id=b.dataset.vext, hours=parseFloat($('#vext-'+id).value);
     try{
       const q = await api('/api/extend',{rental:id,hours,quote_only:true}); const c=q.quote||{};
-      if(b.dataset.q){ toast(`Extender ${hours} h costaría ${c.cost} ${c.currency||'BTC'} (nuevo total ${c.new_hrs} h)`); return; }
-      if(!await confirmDlg(`<b>Extender alquiler #${id} ${hours} h</b><p>Coste: <b>${c.cost} ${c.currency||'BTC'}</b> · total tras extender: ${c.new_hrs} h</p>`)) return;
+      if(!await confirmDlg(`<b>Extender alquiler #${id} ${hours} h</b><p>Coste: <b>${c.cost} ${esc(L().coin)}</b> (lo que cobra MRR ahora) · total tras extender: ${c.new_hrs} h</p><p class="muted">Solo se extiende si confirmas.</p>`)) return;
       const r = await api('/api/extend',{rental:id,hours}); toast(r.summary); refresh(true); loadAudit();
     }catch(e){ toast(e.message,true); }
   });

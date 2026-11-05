@@ -151,7 +151,14 @@ then measures it from its first share, and each rental card shows the address it
 to, the hashrate expected and the hashrate received. Extend controls live in the rental
 cards; the separate "active rentals" card is shown only when the audit is off.
 
-Market prices are shown in sats per TH per day.
+Market prices are shown per TH per day in hundred-millionths of MRR's currency. Its names
+are configurable (`coin_label`, `unit_label`), and `alt_price` can add the same price in a
+second unit: a JSON URL and the path of the value saying how much of that unit one MRR coin
+buys (`invert` for the reverse). Each market rig shows a sparkline of its last 24 h of
+hashrate from MRR (`/rig/<id>/graph`, cached 10 min) against what it advertises, and its
+region with a flag. Extend is greyed out when the rig's owner does not allow extensions or
+the rental is already at the rig's maximum length; pressing it shows MRR's price for the
+extension and waits for a confirmation.
 
 ### Smaller changes
 
@@ -213,6 +220,8 @@ node), the stratum port MRR connects to is the forwarded one, not the local one.
 | `read_only` | false | dashboard never spends nor touches the bot (fork) |
 | `bot_ui` | true | false: no bot controls, history or log; renting only by hand (fork) |
 | `rent_address` | `""` | payout address for rentals made from the dashboard, `""` = profile's (fork) |
+| `coin_label` / `unit_label` | `BTC` / `sats` | names shown for MRR's currency and its 1e-8 unit (fork) |
+| `alt_price` | `{}` | optional second price unit: `label`, `url`, `path`, `invert` (fork) |
 | `audit.enabled` | true | record gateway samples and show the rental audit (fork) |
 | `audit.assign_workers` | false | give each active rental its own worker through the MRR API (fork) |
 | `audit.worker_prefix` | `mrr` | worker name = prefix + rental id (fork) |

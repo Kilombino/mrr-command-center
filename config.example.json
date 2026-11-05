@@ -36,6 +36,9 @@
  "read_only": false,
  "bot_ui": true,
  "rent_address": "",
+ "coin_label": "BTC",
+ "unit_label": "sats",
+ "alt_price": {},
  "audit": {
   "enabled": true,
   "assign_workers": false,

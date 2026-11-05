@@ -309,7 +309,8 @@ class Audit:
             a = self.analyse(r, w, k.get("observe_from"), count.get(w, 0) > 1) if w else None
             out.append({"id": r["id"], "rig_name": r.get("rig_name"), "advertised_th": r["advertised_th"],
                         "mrr_average_th": r.get("average_th"), "mrr_average_pct": r.get("average_pct"),
-                        "left_h": r.get("left_h"), "address": k.get("address"), "analysis": a})
+                        "left_h": r.get("left_h"), "address": k.get("address"), "analysis": a,
+                        "length_h": r.get("length_h"), "max_h": r.get("maxhours"), "extensions": r.get("extensions")})
         workers = sorted({x["analysis"]["worker"] for x in out if x["analysis"]})
         with _lock:
             st = dict(_status)
