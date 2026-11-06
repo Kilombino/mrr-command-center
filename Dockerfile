@@ -1,7 +1,8 @@
 # MRR Command Center, packaged for Umbrel and StartOS. Standard library only.
 # Config, state and the audit database live in /data (MRR_DATA_DIR); the MRR API
 # key is linked from the dashboard after signing in.
-FROM python:3.13-slim
+# 3.14: DATUM answers with SHA-256 digest auth, which urllib supports from 3.14 on.
+FROM python:3.14-slim
 WORKDIR /app
 COPY dashboard.py mrr_bot.py audit.py LICENSE README.md ./
 COPY www ./www
