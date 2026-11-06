@@ -26,7 +26,13 @@ import mrr_bot  # noqa: E402
 import audit as audit_mod  # noqa: E402
 
 WWW = os.path.join(HERE, "www")
-HISTORY_PATH = os.path.join(HERE, "history.json")
+DATA = mrr_bot.DATA_DIR
+HISTORY_PATH = os.path.join(DATA, "history.json")
+# Packaged for Umbrel or StartOS (MRR_PACKAGED=1): no systemd to read or drive, the
+# dashboard password and the DATUM gateway come from the platform (env below), and
+# the MRR API key is linked from the dashboard itself after signing in.
+PACKAGED = os.environ.get("MRR_PACKAGED", "") not in ("", "0", "false")
+NO_KEY = "aún no hay clave API de MRR: vincúlala en la tarjeta Clave API de MRR"
 GATEWAY = {"url": "http://127.0.0.1:7158", "user": "oracle", "password": ""}
 DASH_DEFAULTS = {
     "dashboard_port": 7160,
@@ -81,14 +87,68 @@ rdns_cache = {}
 
 
 # ----------------------------------------------------------------------------- config
+def datum_conf_gateway():
+    """The DATUM gateway's API from its own config file (MRR_DATUM_CONFIG), as the
+    packaged apps mount it read-only: its port and admin password, so nobody has to
+    copy them across. None when there is no such file."""
+    path = os.environ.get("MRR_DATUM_CONFIG")
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            api = (json.load(f).get("api") or {})
+    except (OSError, ValueError):
+        return None
+    host = os.environ.get("MRR_GATEWAY_HOST") or "127.0.0.1"
+    return {"url": f"http://{host}:{int(api.get('listen_port') or 7152)}", "user": "admin",
+            "password": str(api.get("admin_password") or "")}
+
+
 def cfg():
     c = mrr_bot.load_config()
     for k, v in DASH_DEFAULTS.items():
         c.setdefault(k, v)
+    # The platform's settings win over the file: the password Umbrel/StartOS show the
+    # user, and the gateway the app is wired to.
+    if os.environ.get("MRR_DASHBOARD_PASSWORD"):
+        c["dashboard_password"] = os.environ["MRR_DASHBOARD_PASSWORD"]
+    if os.environ.get("MRR_PORT"):
+        c["dashboard_port"] = int(os.environ["MRR_PORT"])
+    g = datum_conf_gateway()
+    if os.environ.get("MRR_GATEWAY_URL"):
+        g = dict(g or {"user": "admin", "password": ""}, url=os.environ["MRR_GATEWAY_URL"])
+    if os.environ.get("MRR_GATEWAY_PASSWORD"):
+        g = dict(g or {"url": GATEWAY["url"], "user": "admin"}, password=os.environ["MRR_GATEWAY_PASSWORD"])
+    if g:
+        c["gateway"] = g
+    if PACKAGED:
+        c["bot_ui"] = False
+        c["datum_service"] = ""
     return c
 
 
+def write_raw(update):
+    """Apply update(raw) to config.json and write it back, private to this user."""
+    with open(mrr_bot.CONFIG_PATH) as f:
+        raw = json.load(f)
+    update(raw)
+    tmp = mrr_bot.CONFIG_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(raw, f, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, mrr_bot.CONFIG_PATH)
+    return raw
+
+
 def ensure_dashboard_config():
+    if not os.path.exists(mrr_bot.CONFIG_PATH):
+        # First start of a packaged app: an empty config. The API key is linked from
+        # the dashboard, the rest are the defaults until the user changes them.
+        os.makedirs(os.path.dirname(mrr_bot.CONFIG_PATH), exist_ok=True)
+        with open(mrr_bot.CONFIG_PATH, "w") as f:
+            json.dump({"api_key": "", "api_secret": "", "read_only": False, "bot_ui": False,
+                       "audit": {"enabled": True, "assign_workers": True}}, f, indent=1)
+        os.chmod(mrr_bot.CONFIG_PATH, 0o600)
     with open(mrr_bot.CONFIG_PATH) as f:
         raw = json.load(f)
     changed = False
@@ -308,7 +368,82 @@ def load_history():
 
 # ----------------------------------------------------------------------------- MRR
 def mrr_api(c):
+    if not (c.get("api_key") and c.get("api_secret")):
+        raise RuntimeError(NO_KEY)
     return mrr_bot.MRR(c, mrr_bot.load_state())
+
+
+# ----------------------------------------------------------------------------- MRR API key
+def key_hint(key):
+    key = key or ""
+    return f"{key[:4]}…{key[-4:]}" if len(key) > 8 else ""
+
+
+def setup_view():
+    c = cfg()
+    perms = c.get("api_permissions") or {}
+    with lock:
+        gw = cache["gateway"]
+    return {"linked": bool(c.get("api_key") and c.get("api_secret")), "key_hint": key_hint(c.get("api_key")),
+            "username": c.get("api_username") or "", "permissions": perms,
+            "can_rent": str(perms.get("rent", "")).lower() == "yes",
+            "profile_id": c.get("profile_id"), "packaged": PACKAGED,
+            "gateway": {"url": c["gateway"]["url"], "ok": bool(gw.get("data")), "error": gw.get("error")}}
+
+
+def link_key(key, secret):
+    """Check a key with MRR before keeping it: it must sign in, and it must not be able
+    to withdraw. Kept only in config.json (mode 600), never shown again in full."""
+    key, secret = (key or "").strip(), (secret or "").strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{32,128}", key) or not re.fullmatch(r"[0-9a-fA-F]{32,128}", secret):
+        raise RuntimeError("pega la Key y el Secret tal como los muestra MRR (letras a-f y números)")
+    api = mrr_bot.MRR({"api_key": key, "api_secret": secret}, mrr_bot.load_state())
+    who = api.call("GET", "/whoami")
+    mrr_bot.save_state(api.state)
+    if not who.get("authed"):
+        raise RuntimeError("MRR no ha aceptado esta Key y este Secret")
+    perms = {k: str(v).lower() for k, v in (who.get("permissions") or {}).items()}
+    if perms.get("withdraw") == "yes":
+        raise RuntimeError("esta clave puede RETIRAR tu saldo de MRR: crea una con Withdraw en No o Read."
+                           " El panel nunca retira, así que no guarda una clave que pueda")
+    def upd(raw):
+        raw.update(api_key=key, api_secret=secret, api_permissions=perms, api_username=who.get("username") or "")
+    write_raw(upd)
+    with lock:
+        cache["mrr"] = {"at": 0, "data": None, "error": None}
+    return setup_view()
+
+
+def unlink_key():
+    def upd(raw):
+        for k in ("api_key", "api_secret", "api_permissions", "api_username"):
+            raw.pop(k, None)
+        raw["api_key"] = raw["api_secret"] = ""
+    write_raw(upd)
+    with lock:
+        cache["mrr"] = {"at": 0, "data": None, "error": None}
+    return setup_view()
+
+
+def pool_profiles():
+    c = cfg()
+    api = mrr_api(c)
+    rows = api.call("GET", "/account/profile")
+    mrr_bot.save_state(api.state)
+    out = []
+    for p in rows or []:
+        algo = (p.get("algo") or {}).get("name") if isinstance(p.get("algo"), dict) else p.get("algo")
+        out.append({"id": int(p["id"]), "name": p.get("name") or "", "algo": algo or "",
+                    "matches": (algo or "").lower() == c["algo"].lower()})
+    return {"profiles": out, "profile_id": c.get("profile_id")}
+
+
+def set_profile(pid):
+    pid = int(pid)
+    if not any(p["id"] == pid for p in pool_profiles()["profiles"]):
+        raise RuntimeError("ese perfil de pool no está en tu cuenta de MRR")
+    write_raw(lambda raw: raw.update(profile_id=pid))
+    return setup_view()
 
 
 def mrr_overview(force=False):
@@ -547,6 +682,8 @@ def sysctl(*args, timeout=20):
 
 
 def bot_state():
+    if PACKAGED:
+        return {"timer_enabled": False, "timer_active": False, "service_running": False, "next_run": "", "last_run": ""}
     _, enabled = sysctl("is-enabled", "mrr-bot.timer")
     _, active = sysctl("is-active", "mrr-bot.timer")
     _, svc = sysctl("is-active", "mrr-bot.service")
@@ -569,6 +706,8 @@ def bot_log(lines=80):
 
 
 def gateway_log(lines=40):
+    if PACKAGED or not cfg().get("datum_service"):
+        return []   # the gateway runs in its own app; its log is there
     unit = cfg().get("datum_service") or DASH_DEFAULTS["datum_service"]
     scope = ["--user"] if (cfg().get("datum_service_scope") or "user") == "user" else []
     r = subprocess.run(["journalctl", *scope, "-u", unit, "-n", "400", "--no-pager", "-o", "short-iso"],
@@ -616,7 +755,8 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def _login_page(self, wrong=False):
-        body = LOGIN_HTML.replace("{{msg}}", "Contraseña incorrecta" if wrong else "").encode()
+        msg = "Contraseña incorrecta" if wrong else (os.environ.get("MRR_PASSWORD_HINT") or "")
+        body = LOGIN_HTML.replace("{{msg}}", msg.replace("&", "&amp;").replace("<", "&lt;")).encode()
         self.send_response(401 if not wrong else 403)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -691,6 +831,10 @@ class Handler(BaseHTTPRequestHandler):
                                "alt": (c.get("alt_price") or {}).get("label")},
                     "alt_rate": alt_rate()[0],
                 })
+            if url.path == "/api/setup":
+                return self._json(setup_view())
+            if url.path == "/api/setup/profiles":
+                return self._json(pool_profiles())
             if url.path == "/api/audit":
                 if not AUDIT[0]:
                     return self._json({"enabled": False})
@@ -723,6 +867,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "bad json"}, 400)
         try:
             c = cfg()
+            if self.path == "/api/setup/key":
+                return self._json(dict(ok=True, **link_key(body.get("key"), body.get("secret"))))
+            if self.path == "/api/setup/unlink":
+                return self._json(dict(ok=True, **unlink_key()))
+            if self.path == "/api/setup/profile":
+                return self._json(dict(ok=True, **set_profile(body.get("profile_id"))))
+            perms = c.get("api_permissions") or {}
+            if perms and perms.get("rent") != "yes" and (self.path == "/api/rent" or (
+                    self.path == "/api/extend" and not body.get("quote_only"))):
+                return self._json({"ok": False, "error": "tu clave API de MRR tiene Rent en "
+                                   + perms.get("rent", "no") + ": vincula una con Rent: Yes para alquilar o extender desde aquí"}, 403)
             if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address") or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
                 return self._json({"ok": False, "error": "read-only dashboard (read_only in config.json)"}, 403)
@@ -767,13 +922,14 @@ def main():
     c = cfg()
     a = audit_mod.settings(c)
     if a["enabled"]:
-        AUDIT[0] = audit_mod.Audit(HERE, c)
+        AUDIT[0] = audit_mod.Audit(DATA, c)
         AUDIT_PREFIX[0] = a["worker_prefix"]
-        if c.get("api_key") and c.get("api_secret"):
-            threading.Thread(target=audit_mod.sync_loop, daemon=True,
-                             args=(AUDIT[0], lambda: mrr_api(cfg()), lambda api: mrr_bot.save_state(api.state))).start()
+        # Always started: with no key linked yet each pass just fails quietly, and it
+        # picks the key up as soon as one is linked from the dashboard.
+        threading.Thread(target=audit_mod.sync_loop, daemon=True,
+                         args=(AUDIT[0], lambda: mrr_api(cfg()), lambda api: mrr_bot.save_state(api.state))).start()
     threading.Thread(target=gateway_loop, daemon=True).start()
-    port = int(raw.get("dashboard_port") or 7160)
+    port = int(c.get("dashboard_port") or raw.get("dashboard_port") or 7160)
     srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     print(f"MRR Command Center on http://0.0.0.0:{port}/ (user: any, password in config.json)", flush=True)
     try:

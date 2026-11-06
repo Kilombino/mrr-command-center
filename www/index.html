@@ -158,6 +158,7 @@ details summary{list-style:none;cursor:pointer;font:600 11px var(--ui);letter-sp
 details summary::before{content:"▸ ";color:var(--cyan)}details[open] summary::before{content:"▾ "}
 dialog{background:var(--panel2);color:var(--text);border:1px solid var(--line2);max-width:540px;padding:20px 22px;box-shadow:0 0 40px rgba(25,215,255,.15);
   clip-path:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)}
+dialog.setup{max-width:660px}dialog.setup li{margin:3px 0}dialog.setup input{box-sizing:border-box;padding:10px}
 dialog::backdrop{background:rgba(3,5,10,.75);backdrop-filter:blur(3px)}
 dialog b{font-family:var(--display);font-size:14px;letter-spacing:.5px}
 .section-num{font:500 10px var(--mono);color:var(--dim);letter-spacing:2px}
@@ -204,6 +205,12 @@ body.nobot #hashcard{grid-column:span 12}
 </header>
 
 <main>
+  <section class="card span12" id="apicard"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2>Clave API de MRR <span class="right row"><button id="btn-key-change" class="small">Meter otra clave</button> <button id="btn-key-unlink" class="small">Desvincular</button></span></h2>
+    <div id="apiinfo" class="muted">consultando…</div>
+    <div class="row" style="margin-top:10px;gap:8px;align-items:center"><span class="muted">Perfil de pool para alquilar:</span>
+      <select id="sel-profile" style="min-width:260px"></select> <button id="btn-profile" class="small">Usar este</button></div>
+  </section>
   <section class="kpis">
     <div class="kpi accent"><div class="l">Hashrate gateway</div><div class="v" id="k-hash">–</div><div class="s" id="k-hash-s">suma de clientes suscritos</div></div>
     <div class="kpi"><div class="l">ASICs conectados</div><div class="v" id="k-asics">–</div><div class="s" id="k-asics-s"></div></div>
@@ -332,6 +339,24 @@ body.nobot #hashcard{grid-column:span 12}
 </main>
 
 <div class="toast" id="toast"></div>
+<dialog id="setup" class="setup"><form id="setup-form" method="dialog">
+  <h2 style="margin-top:0">Vincula tu clave API de MiningRigRentals</h2>
+  <p>Este panel lee tus alquileres y tu saldo en MRR y, si quieres, alquila y extiende rigs <b>a mano</b>, siempre con botón y confirmación. Para eso necesita una clave API de tu cuenta.</p>
+  <ol style="line-height:1.55;padding-left:20px">
+    <li>En <a href="https://www.miningrigrentals.com/account/apikey" target="_blank" rel="noopener">miningrigrentals.com → Account → API Keys</a>, pulsa <b>Create API Key</b>.</li>
+    <li>Dale estos permisos:
+      <ul style="margin:4px 0">
+        <li><b>Withdraw: No</b> o <b>Read</b> (Read deja ver tu saldo). <b>Nunca Yes</b>: el panel no retira nada y rechaza una clave que pueda retirar.</li>
+        <li><b>Rent: Yes</b> para alquilar y extender desde aquí y asignar a cada alquiler su propio worker, que es lo que permite auditarlo. <b>Read</b> si solo quieres ver tus alquileres.</li>
+        <li><b>Rigs: No</b>: no hace falta.</li>
+      </ul></li>
+    <li>Copia la <b>Key</b> y el <b>Secret</b> (MRR solo enseña el Secret una vez) y pégalos aquí. Se guardan solo en este servidor.</li>
+  </ol>
+  <input id="setup-key" placeholder="API Key" autocomplete="off" spellcheck="false" style="width:100%;margin:6px 0">
+  <input id="setup-secret" type="password" placeholder="API Secret" autocomplete="off" spellcheck="false" style="width:100%;margin:6px 0">
+  <div id="setup-err" style="color:var(--bad,#ff3b5c);min-height:1.2em;margin:4px 0"></div>
+  <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" id="setup-cancel">Ahora no</button><button type="button" id="setup-save" class="primary">Comprobar y guardar</button></div>
+</form></dialog>
 <dialog id="dlg"><div id="dlg-body"></div><div class="row" style="justify-content:flex-end;margin-top:16px"><button id="dlg-no">Cancelar</button><button id="dlg-yes" class="primary">Confirmar</button></div></dialog>
 
 <script>
@@ -689,6 +714,40 @@ async function loadHistory(){
 async function loadAudit(){ try{ audit=await api('/api/audit'); renderAudit(); if(state) renderRentals(state.mrr); }catch(e){ const el=$('#cotejo'); if(el) el.textContent='auditoría no disponible: '+e.message; } }
 window.addEventListener('resize', drawChart2);
 loadAudit(); setInterval(loadAudit, 60000); setInterval(loadHistory, 300000);
+
+// ---------------------------------------------------------------- MRR API key (linked from here)
+let setupState=null;
+const PERM={no:'No',read:'Read',yes:'Yes'};
+async function loadSetup(openIfMissing){
+  try{ setupState=await api('/api/setup'); }catch(e){ $('#apiinfo').textContent='error: '+e.message; return; }
+  const S=setupState, p=S.permissions||{};
+  $('#btn-key-unlink').style.display=S.linked?'':'none';
+  $('#btn-key-change').textContent=S.linked?'Meter otra clave':'Vincular clave';
+  $('#apiinfo').innerHTML = S.linked
+    ? `Vinculada <b class="mono">${esc(S.key_hint)}</b>${S.username?' de <b>'+esc(S.username)+'</b>':''} · permisos: Withdraw <b>${esc(PERM[p.withdraw]||p.withdraw||'?')}</b>, Rent <b>${esc(PERM[p.rent]||p.rent||'?')}</b>, Rigs <b>${esc(PERM[p.rigs]||p.rigs||'?')}</b>`
+      + (S.can_rent?'':' · <span style="color:var(--warn)">con Rent distinto de Yes solo puedes mirar: para alquilar, mete una clave con Rent: Yes</span>')
+    : '<span style="color:var(--warn)">Sin clave API: vincula una para ver tus alquileres y tu saldo.</span>';
+  $('#apiinfo').innerHTML += `<br><span class="muted">Gateway DATUM: <span class="mono">${esc(S.gateway.url)}</span> · ${S.gateway.ok?'<span style="color:var(--accent2)">conectado</span>':'<span style="color:var(--warn)">sin respuesta'+(S.gateway.error?': '+esc(S.gateway.error):'')+'</span>'}</span>`;
+  const sel=$('#sel-profile'); sel.parentElement.style.display=S.linked?'':'none';
+  if(S.linked){ try{ const r=await api('/api/setup/profiles');
+      sel.innerHTML='<option value="">— elige un perfil —</option>'+r.profiles.map(x=>`<option value="${x.id}" ${String(x.id)===String(r.profile_id)?'selected':''}>${esc(x.name)} (${esc(x.algo)}${x.matches?'':' · otro algoritmo'})</option>`).join('');
+    }catch(e){ sel.innerHTML=`<option value="">no se pudieron leer: ${esc(e.message)}</option>`; } }
+  if(openIfMissing && !S.linked) openSetup();
+}
+function openSetup(){ $('#setup-key').value=''; $('#setup-secret').value=''; $('#setup-err').textContent=''; $('#setup').showModal(); $('#setup-key').focus(); }
+$('#setup-cancel').onclick=()=>$('#setup').close();
+$('#setup-save').onclick=async()=>{ $('#setup-err').textContent='comprobando con MRR…';
+  try{ await api('/api/setup/key',{key:$('#setup-key').value, secret:$('#setup-secret').value});
+    $('#setup').close(); toast('Clave vinculada'); await loadSetup(false); refresh(true); loadMarket(); loadAudit();
+    if(!setupState.profile_id) toast('Ahora elige el perfil de pool al que minarán tus alquileres');
+  }catch(e){ $('#setup-err').textContent=e.message; } };
+$('#btn-key-change').onclick=openSetup;
+$('#btn-key-unlink').onclick=async()=>{ if(!await confirmDlg('<b>Desvincular la clave API</b><p>Se borra de este servidor. Lo ya medido se queda; hasta que metas otra clave no se ven tus alquileres ni tu saldo. Si ya no la vas a usar, bórrala también en MRR.</p>')) return;
+  try{ await api('/api/setup/unlink',{}); toast('Clave desvinculada'); loadSetup(false); refresh(true); }catch(e){ toast(e.message,true);} };
+$('#btn-profile').onclick=async()=>{ const v=$('#sel-profile').value; if(!v) return toast('Elige un perfil',true);
+  if(!await confirmDlg('<b>Usar este perfil de pool</b><p>Los alquileres que hagas desde aquí empezarán minando a él. Debe apuntar al stratum de <b>tu</b> DATUM visible desde internet: tu IP pública o dominio y el puerto stratum del DATUM abierto en tu router. Luego el panel le pone a cada alquiler su propio worker para auditarlo.</p>')) return;
+  try{ await api('/api/setup/profile',{profile_id:Number(v)}); toast('Perfil guardado'); loadSetup(false); }catch(e){ toast(e.message,true);} };
+loadSetup(true); setInterval(()=>loadSetup(false), 120000);
 </script>
 </body>
 </html>

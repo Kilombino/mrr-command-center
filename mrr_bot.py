@@ -27,9 +27,12 @@ import urllib.request
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(HERE, "config.json")
-STATE_PATH = os.path.join(HERE, "state.json")
-LOCK_PATH = os.path.join(HERE, ".mrr.lock")   # serialises API calls across processes (nonces must arrive in order)
+# Where config, state and the audit database live: this checkout, or MRR_DATA_DIR
+# when packaged (Umbrel, StartOS), so the code can be replaced without the data.
+DATA_DIR = os.environ.get("MRR_DATA_DIR") or HERE
+CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
+STATE_PATH = os.path.join(DATA_DIR, "state.json")
+LOCK_PATH = os.path.join(DATA_DIR, ".mrr.lock")   # serialises API calls across processes (nonces must arrive in order)
 BASE = "https://www.miningrigrentals.com/api/v2"
 
 DEFAULTS = {
