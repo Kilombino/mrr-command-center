@@ -6,6 +6,7 @@ config.json "dashboard_password"). Reads the gateway's admin pages (digest auth)
 the MRR API (through mrr_bot.py) and controls the systemd timer.
 """
 import base64
+import hashlib
 import json
 import os
 import re
@@ -15,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -192,16 +194,57 @@ def write_knobs(updates):
 
 
 # ----------------------------------------------------------------------------- gateway
-def gateway_opener(c):
+def _digest_header(g, method, path, challenge, nc):
+    """RFC 7616 digest Authorization for the gateway (MD5 or SHA-256, qop=auth).
+
+    Hand-rolled instead of urllib's HTTPDigestAuthHandler: some DATUM builds
+    announce algorithm=sha-256 in lower case, which urllib rejects, and even
+    with the name upper-cased its handler is refused by those builds while
+    this exact computation (and curl --digest) is accepted.
+    """
+    ch = {k: (a or b) for k, a, b in re.findall(r'(\w+)=(?:"([^"]*)"|([^,\s]+))', challenge)}
+    alg = (ch.get("algorithm") or "MD5").upper()
+    if alg == "SHA-256":
+        H = lambda x: hashlib.sha256(x.encode()).hexdigest()
+    elif alg == "MD5":
+        H = lambda x: hashlib.md5(x.encode()).hexdigest()
+    else:
+        raise RuntimeError(f"unsupported digest algorithm {alg!r}")
+    cnonce = secrets.token_hex(8)
+    ncv = f"{nc:08x}"
+    ha1 = H(f"{g['user']}:{ch.get('realm', '')}:{g['password']}")
+    ha2 = H(f"{method}:{path}")
+    resp = H(f"{ha1}:{ch.get('nonce', '')}:{ncv}:{cnonce}:auth:{ha2}")
+    hdr = (f'Digest username="{g["user"]}", realm="{ch.get("realm", "")}", '
+           f'nonce="{ch.get("nonce", "")}", uri="{path}", response="{resp}", '
+           f'algorithm={alg}, qop=auth, nc={ncv}, cnonce="{cnonce}"')
+    if "opaque" in ch:
+        hdr += f', opaque="{ch["opaque"]}"'
+    return hdr
+
+
+def gateway_request(c, path, data=None, headers=None):
+    """GET (or POST with data) on the gateway with digest auth; returns (status, body)."""
     g = c["gateway"]
-    mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-    mgr.add_password(None, g["url"], g["user"], g["password"])
-    return urllib.request.build_opener(urllib.request.HTTPDigestAuthHandler(mgr))
+    url = g["url"] + path
+    method = "POST" if data is not None else "GET"
+    hdrs = dict(headers or {})
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=hdrs, method=method),
+                                    timeout=8) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        challenge = e.headers.get("WWW-Authenticate", "")
+        if e.code != 401 or not challenge.lower().startswith("digest"):
+            raise
+    hdrs["Authorization"] = _digest_header(g, method, urllib.parse.urlsplit(url).path or "/", challenge, 1)
+    with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=hdrs, method=method),
+                                timeout=8) as r:
+        return r.status, r.read()
 
 
 def gateway_get(c, path):
-    with gateway_opener(c).open(c["gateway"]["url"] + path, timeout=8) as r:
-        return r.read().decode(errors="replace")
+    return gateway_request(c, path)[1].decode(errors="replace")
 
 
 def gateway_post_cmd(c, payload):
@@ -210,10 +253,8 @@ def gateway_post_cmd(c, payload):
     if not m:
         raise RuntimeError("csrf token not found on gateway page")
     payload = dict(payload, csrf=m.group(1))
-    req = urllib.request.Request(c["gateway"]["url"] + "/cmd", data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json"}, method="POST")
-    with gateway_opener(c).open(req, timeout=8) as r:
-        return r.status
+    return gateway_request(c, "/cmd", data=json.dumps(payload).encode(),
+                           headers={"Content-Type": "application/json"})[0]
 
 
 def strip_tags(s):
