@@ -198,6 +198,7 @@ body.nobot #hashcard{grid-column:span 12}
   <div class="pills">
     <span class="pill" id="p-gw">gateway: …</span>
     <span class="pill" id="p-pool">pool: …</span>
+    <span class="pill" id="p-bal">saldo MRR: …</span>
     <span class="pill bot-ui" id="p-timer">bot: …</span>
     <span class="pill" id="p-upd">actualizado: …</span>
   </div>
@@ -393,6 +394,7 @@ function render(d){
     $('#k-rentals-s').textContent = r.length ? r.map(x=>x.advertised+' · '+fmtH(x.left_h)+' restantes').join(' | ') : 'ninguna';
     $('#k-bal').textContent = fmtBtc(mrr.balance.confirmed);
     $('#k-bal-s').textContent = L().coin+' · sin confirmar '+fmtBtc(mrr.balance.unconfirmed);
+    pill('#p-bal', 'saldo MRR: <b>'+fmtBtc(mrr.balance.confirmed)+'</b>'+(Number(mrr.balance.unconfirmed)>0?' · +'+fmtBtc(mrr.balance.unconfirmed)+' sin conf.':''), 'ok');
     const u=L().unit, alt=altOf(mrr.market.last_10);
     $('#k-mkt').textContent = units(mrr.market.last_10);
     $('#k-mkt-s').textContent = u+'/TH/día'+(alt?' ≈ '+alt+'/TH/día':'')+' · mín '+units(mrr.market.lowest)+' · '+mrr.market.available_rigs+' rigs / '+mrr.market.available_hash+' libres';
