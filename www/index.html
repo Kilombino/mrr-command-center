@@ -575,7 +575,7 @@ function auditLine(id){
 // Happy when the gateway gets more than both what was paid and what MRR reports, straight when
 // it is close to what was paid (within 5 %), sad when it gets less.
 // Remaining time, short: "34 h" under two days, "5,6 d" from then on.
-function fmtLeft(h){ return h<48 ? Math.max(0,Math.round(h))+' h' : (h/24).toFixed(1).replace('.',',')+' d'; }
+function fmtLeft(h){ if(h<1) return Math.max(0,Math.round(h*60))+' min'; return h<48 ? Math.round(h)+' h' : (h/24).toFixed(1).replace('.',',')+' d'; }
 function face(x){
   const a=x.analysis; if(!a||a.delivered_th==null||!x.advertised_th) return '<svg class="face"></svg>';
   const d=a.delivered_th, paid=x.advertised_th, m=x.mrr_average_th||0;
