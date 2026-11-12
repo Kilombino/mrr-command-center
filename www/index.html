@@ -144,6 +144,7 @@ canvas.spark{width:150px;height:34px;display:block}
 .runway b{font:700 18px var(--display);color:var(--cyan2)}
 .vmid{display:flex;gap:12px;align-items:center}.vmid .vbars{flex:1}
 .star{background:none;border:0;clip-path:none;padding:0 4px;font-size:18px;color:#4f5c7c;cursor:pointer;line-height:1}
+.vface{display:flex;flex-direction:column;align-items:center;gap:2px}.vface .star{font-size:26px}
 .star.on{color:#ffd23f;text-shadow:0 0 10px rgba(255,210,63,.7)}.star:hover{box-shadow:none;color:#ffd23f}
 #t-market tr.fav{background:rgba(255,210,63,.05)}
 .vrow a.rn{color:var(--text)}.vrow a.rn:hover{color:var(--cyan2)}
@@ -622,7 +623,7 @@ function renderAudit(){
     const got=a.delivered_th, pct=a.pct;
     const isFav=x.rig_id!=null && favSet().has(String(x.rig_id));
     const star=x.rig_id!=null?`<button class="star ${isFav?'on':''}" data-vfav="${esc(x.rig_id)}" data-name="${esc(x.rig_name||'')}" title="${isFav?'Quitar de favoritos':'Marcar como favorito'}">${isFav?'★':'☆'}</button>`:'';
-    return `<div class="vrow"><div>${star}<a class="rn" href="https://www.miningrigrentals.com/rental/${esc(x.id)}" target="_blank" rel="noopener" title="Abrir el alquiler en MRR"><b>${esc(x.rig_name||'')}</b> ↗</a><div class="muted mono" style="font-size:11.5px">#${esc(x.id)}${a.worker?' · '+esc(a.worker):''}${a.worker?(a.connected?' · <span class="ok">● minando</span>':' · <span class="bad">● desconectado</span>'):''}</div>
+    return `<div class="vrow"><div><a class="rn" href="https://www.miningrigrentals.com/rental/${esc(x.id)}" target="_blank" rel="noopener" title="Abrir el alquiler en MRR"><b>${esc(x.rig_name||'')}</b> ↗</a><div class="muted mono" style="font-size:11.5px">#${esc(x.id)}${a.worker?' · '+esc(a.worker):''}${a.worker?(a.connected?' · <span class="ok">● minando</span>':' · <span class="bad">● desconectado</span>'):''}</div>
       <div class="vexp"><span>esperado <b>${x.advertised_th.toFixed(2)} TH/s</b></span><span>recibido <b class="got">${got!=null?got.toFixed(2)+' TH/s':'–'}</b>${pct!=null?' <span class="muted">('+pct.toFixed(0)+'%)</span>':''}</span></div>
       ${x.address?'<div class="addr" title="address a la que mina este alquiler">→ '+esc(x.address)+'</div>':''}
       ${a.partial?'<div class="muted" style="font-size:11.5px">medido desde '+new Date(a.observed_from*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+'</div>':''}
@@ -630,7 +631,7 @@ function renderAudit(){
          const why=!x.extensions?'El dueño del rig no permite extender':(room!=null&&room<1)?'Ya está en el máximo de horas del rig ('+x.max_h+' h)':'';
          return `<div class="row rw" style="margin-top:6px;flex-wrap:nowrap" title="${esc(why)}"><input type="number" step="1" min="1" ${room?'max="'+room+'"':''} value="${room?Math.min(24,room):24}" style="width:70px" id="vext-${esc(x.id)}" ${why?'disabled':''}><span class="muted">h</span>
         <button class="small primary" data-vext="${esc(x.id)}" ${why?'disabled':''}>Extender</button>${why?'<span class="muted" style="font-size:11.5px">'+esc(why)+'</span>':room!=null?'<span class="muted" style="font-size:11.5px">hasta '+room+' h más</span>':''}</div>`; })()}</div>
-      <div class="vmid"><div class="left ${(x.left_h||0)<6?'soon':''}" title="Tiempo que le queda a este alquiler"><b>${fmtLeft(x.left_h||0)}</b><span>quedan</span></div>${face(x)}<div class="vbars">${b2('c','pagado',x.advertised_th)}${b2('m','MRR dice',x.mrr_average_th)}${b2('d','gateway',a.delivered_th, a.rel_err_pct?' <span class="muted">±'+a.rel_err_pct.toFixed(0)+'%</span>':'')}</div></div>
+      <div class="vmid"><div class="left ${(x.left_h||0)<6?'soon':''}" title="Tiempo que le queda a este alquiler"><b>${fmtLeft(x.left_h||0)}</b><span>quedan</span></div><div class="vface">${face(x)}${star}</div><div class="vbars">${b2('c','pagado',x.advertised_th)}${b2('m','MRR dice',x.mrr_average_th)}${b2('d','gateway',a.delivered_th, a.rel_err_pct?' <span class="muted">±'+a.rel_err_pct.toFixed(0)+'%</span>':'')}</div></div>
       <div><span class="verd ${a.verdict}" title="${esc(VHELP[a.verdict]||'')}">${VTXT[a.verdict]||a.verdict}</span>${a.z!=null&&Math.abs(a.z)>audit.sigma?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+Math.abs(a.z).toFixed(1)+' sigmas</div>':''}
         ${a.shares!=null?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+a.shares.toLocaleString()+' / '+Math.round(a.expected_shares).toLocaleString()+' shares</div>':''}</div></div>`;}).join('')
     : '<div class="muted">sin rentas activas</div>';
