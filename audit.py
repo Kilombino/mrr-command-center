@@ -398,7 +398,7 @@ class Audit:
             k = known.get(str(r["id"])) or {}
             w = k.get("worker")
             a = self.analyse(r, w, k.get("observe_from"), count.get(w, 0) > 1) if w else None
-            out.append({"id": r["id"], "rig_name": r.get("rig_name"), "advertised_th": r["advertised_th"],
+            out.append({"id": r["id"], "rig_id": r.get("rig_id"), "rig_name": r.get("rig_name"), "advertised_th": r["advertised_th"],
                         "mrr_average_th": r.get("average_th"), "mrr_average_pct": r.get("average_pct"),
                         "left_h": r.get("left_h"), "address": k.get("address"), "analysis": a,
                         "length_h": r.get("length_h"), "max_h": r.get("maxhours"), "extensions": r.get("extensions")})

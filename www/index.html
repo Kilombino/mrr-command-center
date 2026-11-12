@@ -620,7 +620,9 @@ function renderAudit(){
   $('#v-title').textContent = rs.length===1 ? '1 alquiler' : rs.length+' alquileres';
   $('#verdicts').innerHTML = rs.length? rs.map(x=>{ const a=x.analysis||{verdict:'none'};
     const got=a.delivered_th, pct=a.pct;
-    return `<div class="vrow"><div><a class="rn" href="https://www.miningrigrentals.com/rental/${esc(x.id)}" target="_blank" rel="noopener" title="Abrir el alquiler en MRR"><b>${esc(x.rig_name||'')}</b> ↗</a><div class="muted mono" style="font-size:11.5px">#${esc(x.id)}${a.worker?' · '+esc(a.worker):''}${a.worker?(a.connected?' · <span class="ok">● minando</span>':' · <span class="bad">● desconectado</span>'):''}</div>
+    const isFav=x.rig_id!=null && favSet().has(String(x.rig_id));
+    const star=x.rig_id!=null?`<button class="star ${isFav?'on':''}" data-vfav="${esc(x.rig_id)}" data-name="${esc(x.rig_name||'')}" title="${isFav?'Quitar de favoritos':'Marcar como favorito'}">${isFav?'★':'☆'}</button>`:'';
+    return `<div class="vrow"><div>${star}<a class="rn" href="https://www.miningrigrentals.com/rental/${esc(x.id)}" target="_blank" rel="noopener" title="Abrir el alquiler en MRR"><b>${esc(x.rig_name||'')}</b> ↗</a><div class="muted mono" style="font-size:11.5px">#${esc(x.id)}${a.worker?' · '+esc(a.worker):''}${a.worker?(a.connected?' · <span class="ok">● minando</span>':' · <span class="bad">● desconectado</span>'):''}</div>
       <div class="vexp"><span>esperado <b>${x.advertised_th.toFixed(2)} TH/s</b></span><span>recibido <b class="got">${got!=null?got.toFixed(2)+' TH/s':'–'}</b>${pct!=null?' <span class="muted">('+pct.toFixed(0)+'%)</span>':''}</span></div>
       ${x.address?'<div class="addr" title="address a la que mina este alquiler">→ '+esc(x.address)+'</div>':''}
       ${a.partial?'<div class="muted" style="font-size:11.5px">medido desde '+new Date(a.observed_from*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+'</div>':''}
@@ -632,6 +634,8 @@ function renderAudit(){
       <div><span class="verd ${a.verdict}" title="${esc(VHELP[a.verdict]||'')}">${VTXT[a.verdict]||a.verdict}</span>${a.z!=null&&Math.abs(a.z)>audit.sigma?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+Math.abs(a.z).toFixed(1)+' sigmas</div>':''}
         ${a.shares!=null?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+a.shares.toLocaleString()+' / '+Math.round(a.expected_shares).toLocaleString()+' shares</div>':''}</div></div>`;}).join('')
     : '<div class="muted">sin rentas activas</div>';
+  $('#verdicts').querySelectorAll('button[data-vfav]').forEach(b=>b.onclick=async()=>{
+    try{ await api('/api/favorite',{rig:b.dataset.vfav,name:b.dataset.name,on:!b.classList.contains('on')}); await loadHistory(); renderAudit(); loadMarket(); }catch(e){ toast(e.message,true); } });
   $('#verdicts').querySelectorAll('button[data-vext]').forEach(b=>b.onclick=async()=>{
     const id=b.dataset.vext, hours=parseFloat($('#vext-'+id).value);
     try{
@@ -671,8 +675,10 @@ function drawChart2(){
   $('#chart2-legend').innerHTML=stack.slice().reverse().map(s=>`<span><i style="display:inline-block;width:12px;height:12px;background:${s.col};box-shadow:0 0 8px ${s.col};vertical-align:-2px;margin-right:6px"></i>${esc(s.name||s.w)} <span class="muted">${(S.series[s.w][n-1]||0).toFixed(1)} / ${s.th.toFixed(1)}</span></span>`).join('');
 }
 var hist=null;
+function favSet(){ return new Set(((hist&&hist.favorites)||[]).map(f=>String(f.rig_id))); }
 async function loadHistory(){
   try{ hist=await api('/api/history'); }catch(e){ return; }
+  if(typeof audit!=='undefined' && audit) renderAudit();
   const C=L().coin, H=hist.history||[];
   $('#hist-info').textContent = `últimos ${hist.history_days||7} días · ⭐ automático si cumple ≥${hist.favorite_pct||95}%`;
   $('#favs').innerHTML = (hist.favorites||[]).length ? '<span class="muted" style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase">Favoritos</span> '+hist.favorites.map(f=>
