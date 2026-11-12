@@ -147,6 +147,9 @@ canvas.spark{width:150px;height:34px;display:block}
 .vface{display:flex;flex-direction:column;align-items:center;gap:2px}.vface .star{font-size:26px}
 .star.on{color:#ffd23f;text-shadow:0 0 10px rgba(255,210,63,.7)}.star:hover{box-shadow:none;color:#ffd23f}
 #t-market tr.fav{background:rgba(255,210,63,.05)}
+#t-market td.pc{font-family:var(--mono);font-weight:700}
+#t-market td.pg{color:#3cf59a;text-shadow:0 0 6px rgba(60,245,154,.35)} #t-market td.py{color:#ffd23f;text-shadow:0 0 6px rgba(255,210,63,.35)} #t-market td.pr{color:#ff3b5c;text-shadow:0 0 6px rgba(255,59,92,.35)}
+#t-market tr.best{background:rgba(25,215,255,.06)} .tag.best{border-color:rgba(25,215,255,.6);color:var(--cyan);font-size:10px;padding:1px 5px}
 .vrow a.rn{color:var(--text)}.vrow a.rn:hover{color:var(--cyan2)}
 .flag{font-size:17px;vertical-align:-2px;margin-right:5px}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
@@ -320,7 +323,7 @@ body.nobot #hashcard{grid-column:span 12}
     <div class="muted rw" style="font-size:12.5px;margin:-4px 0 10px">Cada alquiler mina como <span class="mono">address.mrr&lt;número de alquiler&gt;</span>: un worker propio desde el primer minuto, para que el cotejo lo separe de los demás.</div>
     <div id="mkt-best" class="muted" style="margin-bottom:10px"></div>
     <div class="scroll"><table id="t-market"><thead><tr>
-      <th title="Favoritos: se marcan solos cuando un alquiler termina cumpliendo; también a mano">⭐</th><th>Rig</th><th>Región</th><th title="Hashrate anunciado">Hashrate</th><th title="Hashrate que ha dado el rig en las últimas 24 h según MRR; la línea discontinua es lo anunciado">Últimas 24 h</th><th title="Rig Performance Index de MRR: cómo ha cumplido el rig a lo largo de sus alquileres (100 = da lo anunciado)">RPI</th><th title="Lo que ha dado en los últimos 30 min frente a lo anunciado">Perf 30 min</th><th id="mkt-unit-h" title="Precio por TH y día">sats/TH/día</th><th id="mkt-hour-h" title="Lo que cuesta cada hora de este rig, con la comisión de MRR">sats/h (con fee)</th><th>Horas min–max</th><th></th>
+      <th title="Favoritos: se marcan solos cuando un alquiler termina cumpliendo; también a mano">⭐</th><th>Rig</th><th>Región</th><th title="Hashrate anunciado">Hashrate</th><th title="Hashrate que ha dado el rig en las últimas 24 h según MRR; la línea discontinua es lo anunciado">Últimas 24 h</th><th title="Rig Performance Index de MRR: cómo ha cumplido el rig a lo largo de sus alquileres (100 = da lo anunciado)">RPI</th><th title="Media de lo que ha dado en las últimas 24 h frente a lo anunciado (de la gráfica)">Perf 24 h</th><th title="Lo que ha dado en los últimos 30 min frente a lo anunciado">Perf 30 min</th><th id="mkt-unit-h" title="Precio por TH y día">sats/TH/día</th><th id="mkt-hour-h" title="Lo que cuesta cada hora de este rig, con la comisión de MRR">sats/h (con fee)</th><th>Horas min–max</th><th></th>
     </tr></thead><tbody></tbody></table></div>
   </section>
 
@@ -494,12 +497,12 @@ async function loadMarket(){
     const C=L().coin;
     $('#mkt-best').innerHTML = m.best ? `Saldo para alquilar: <b>${fmtBtc(m.budget)} ${esc(C)}</b>. Lo que más TH·h da ahora: <b>${esc(m.best.name)}</b> ${m.best.adv_th.toFixed(2)} TH × ${m.best.hours.toFixed(1)} h por ${fmtBtc(m.best.cost)} ${esc(C)} (fee incluida)` : `Con ${fmtBtc(m.budget)} ${esc(C)} no alcanza el mínimo de ningún rig usable.`;
     const favs=new Set(((hist&&hist.favorites)||[]).map(f=>String(f.rig_id))), onlyFav=$('#only-fav').checked;
-    $('#t-market tbody').innerHTML = m.rigs.filter(r=>!onlyFav||favs.has(String(r.id))).map(r=>`<tr class="${r.affordable?'':'muted'} ${favs.has(String(r.id))?'fav':''}">
+    $('#t-market tbody').innerHTML = m.rigs.filter(r=>!onlyFav||favs.has(String(r.id))).map(r=>`<tr class="${r.affordable?'':'muted'} ${favs.has(String(r.id))?'fav':''} ${m.best&&String(m.best.rig)===String(r.id)?'best':''}">
       <td><button class="star ${favs.has(String(r.id))?'on':''}" data-fav="${esc(r.id)}" data-name="${esc(r.name)}" title="${favs.has(String(r.id))?'Quitar de favoritos':'Marcar como favorito'}">${favs.has(String(r.id))?'★':'☆'}</button></td>
-      <td class="rig"><a href="https://www.miningrigrentals.com/rigs/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.id)}</a><small title="${esc(r.name)}">${esc(r.name)}</small></td><td>${flag(r.region)}</td>
+      <td class="rig"><a href="https://www.miningrigrentals.com/rigs/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.id)}</a>${m.best&&String(m.best.rig)===String(r.id)?' <span class="tag best" title="El que más TH·h da con tu saldo">más TH·h</span>':''}<small title="${esc(r.name)}">${esc(r.name)}</small></td><td>${flag(r.region)}</td>
       <td class="th1 ${r.adv_th>=50?'xl':r.adv_th>=15?'l':r.adv_th>=5?'m':'s'}">${fmtTh(r.adv_th)}</td>
       <td><canvas class="spark" data-rig="${esc(r.id)}" data-adv="${r.adv_th}"></canvas></td>
-      <td>${r.rpi.toFixed(0)}</td><td>${r.perf!=null?(r.perf*100).toFixed(0)+'%':'–'}</td>
+      <td class="pc ${pcls(r.rpi/100)}">${r.rpi.toFixed(0)}</td><td class="pc p24" id="p24-${esc(r.id)}">…</td><td class="pc ${pcls(r.perf)}">${r.perf!=null?(r.perf*100).toFixed(0)+'%':'–'}</td>
       <td class="mono" title="${esc(altOf(r.price_th_day))}">${units(r.price_th_day)}</td><td class="mono" title="${esc(altOf(r.hour_cost_total))}">${units(r.hour_cost_total)}</td><td>${r.minh}–${r.maxh} h</td>
       <td><div class="row" style="flex-wrap:nowrap"><input type="number" step="1" value="${Math.max(r.minh, Math.floor(r.afford_h))}" style="width:70px" id="rh-${esc(r.id)}"><button class="small primary" data-rent="${esc(r.id)}" data-name="${esc(r.name)}" data-hc="${r.hour_cost_total}" data-th="${r.adv_th}">Rentar</button></div></td></tr>`).join('');
     loadSparks();
@@ -520,10 +523,14 @@ let sparkRun = 0;
 async function loadSparks(){
   const run = ++sparkRun, cvs=[...document.querySelectorAll('canvas.spark')];
   const one = async cv=>{ if(run!==sparkRun) return;
-    try{ const g=await api('/api/rig-graph?id='+cv.dataset.rig); drawSpark(cv, g.th, parseFloat(cv.dataset.adv)); }
+    try{ const g=await api('/api/rig-graph?id='+cv.dataset.rig), adv=parseFloat(cv.dataset.adv); drawSpark(cv, g.th, adv);
+      const cell=document.getElementById('p24-'+cv.dataset.rig), vals=(g.th||[]).filter(v=>v!=null);
+      if(cell){ const r=vals.length&&adv?vals.reduce((s,v)=>s+v,0)/vals.length/adv:null; cell.textContent=r!=null?Math.round(r*100)+'%':'–'; cell.className='pc p24 '+pcls(r); } }
     catch(e){ cv.title='sin datos: '+e.message; } };
   for(let i=0;i<cvs.length;i+=4) await Promise.all(cvs.slice(i,i+4).map(one));
 }
+// Same thresholds and colours as the 24 h sparkline: >=90% green, >=70% yellow, below red.
+function pcls(r){ return r==null?'':r>=0.9?'pg':r>=0.7?'py':'pr'; }
 function drawSpark(cv, th, adv){
   const dpr=window.devicePixelRatio||1, W=150, H=34; cv.width=W*dpr; cv.height=H*dpr; const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
   const vals=th.filter(v=>v!=null); if(!vals.length){ ctx.fillStyle='#4f5c7c'; ctx.font='10px Rajdhani'; ctx.fillText('sin datos',4,20); return; }
