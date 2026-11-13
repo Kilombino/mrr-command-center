@@ -615,6 +615,13 @@ def market_view(budget=None):
     if choice:
         b, hours, thh, cost = choice
         best = {"rig": b["id"], "name": b["name"], "adv_th": b["adv_th"], "hours": hours, "th_hours": thh, "cost": cost}
+        # The table lists the 40 cheapest; the best buy can be further down (a big
+        # rig at a higher price), so make sure it is always in the table.
+        if not any(r["id"] == b["id"] for r in rows):
+            h = min(b["maxh"], budget / (b["hour_cost"] * fee)) if budget > 0 else 0
+            rows.append(dict(b, afford_h=round(h, 1), afford_thh=round(h * b["adv_th"]),
+                             sat_th_day=round(b["price_th_day"] * 1e8),
+                             affordable=h >= b["minh"], hour_cost_total=b["hour_cost"] * fee))
     mrr_bot.save_state(api.state)
     return {"budget": budget, "market": market, "rigs": rows, "best": best, "at": time.time()}
 
