@@ -341,12 +341,15 @@ class PyBlock:
         addr, _ = self.address()
         if not addr or not ADDRESS_RE.match(addr):
             raise OrderError("no hay una address de cobro válida (pyblock.address, rent_address o perfil de MRR)")
-        cat, err = self.packages()
+        # PyBLØCK rebuilds its catalogue (the ids change, e.g. p14x24 -> p24x24): read it
+        # fresh before ordering, so an id shown a while ago is not sent stale.
+        cat, err = self.packages(force=True)
         if not cat:
             raise OrderError(err or "no se pudo leer el catálogo de PyBLØCK", retryable=True)
         pk = next((x for x in cat["packages"] if x["id"] == package), None)
         if not pk:
-            raise OrderError(f"el paquete {package} ya no está en el catálogo")
+            raise OrderError(f"el paquete {package} ya no está en el catálogo de PyBLØCK "
+                             "(lo han cambiado): recarga la tabla y elige de nuevo")
         qty = int(qty)
         step = next((s for s in pk["steps"] if s["qty"] == qty), None)
         if qty < 1 or qty > pk["max_qty"] or not step:
@@ -367,7 +370,11 @@ class PyBlock:
                        "notified": {}}
                 self.state["orders"].append(rec)
                 self._save()
-        body = {"address": rec["address"], "package": rec["package"], "qty": rec["qty"], "pay": rec["pay"],
+        # unit_th + hours instead of the package id: the API takes either, and on 14 nov 2026
+        # it answered "invalid package id" to every id with a decimal size (p4_5x24, p16_1x48…)
+        # while unit_th=4.5 + hours=24 for the same package passed.
+        body = {"address": rec["address"], "qty": rec["qty"], "pay": rec["pay"],
+                "unit_th": pk["unit_th"], "hours": pk["hours"],
                 "client_nonce": nonce,
                 "gateway": {"host": gw["host"], "port": int(gw["port"]), "user": f"{rec['address']}.{rec['worker']}"}}
         if rec["backup"]:

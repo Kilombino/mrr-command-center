@@ -148,7 +148,8 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(o["payment"]["invoice"], FAKE_BOLT11)
         self.assertNotIn("order_id", o)
         sent = Mock.posts[0]
-        self.assertEqual(sent["package"], "p18x24")
+        self.assertNotIn("package", sent)   # PyBLØCK rejected ids with a decimal size
+        self.assertEqual((sent["unit_th"], sent["hours"]), (18, 24))
         self.assertEqual(sent["qty"], 2)
         self.assertEqual(sent["gateway"]["host"], "gw.example.com")
         self.assertTrue(sent["gateway"]["user"].startswith(FAKE_ADDR + ".pyb"))
