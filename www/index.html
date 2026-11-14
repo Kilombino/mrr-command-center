@@ -13,7 +13,7 @@
   --bg:#05070d;--bg2:#0a0e18;--panel:rgba(12,17,30,.78);--panel2:rgba(18,25,42,.9);--line:#1b2740;--line2:#2a3b5e;
   --text:#dfe7f5;--muted:#7f8db0;--dim:#4f5c7c;
   --accent:#f7931a;--accent2:#ffb347;--cyan:#19d7ff;--cyan2:#7eeaff;--ok:#3cf59a;--warn:#ffd23f;--bad:#ff3b5c;--info:#19d7ff;
-  --display:"Orbitron","Rajdhani",system-ui,sans-serif;--ui:"Rajdhani","Segoe UI",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --pyb:#b96bff;--display:"Orbitron","Rajdhani",system-ui,sans-serif;--ui:"Rajdhani","Segoe UI",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --cut:14px;
 }
 *{box-sizing:border-box}
@@ -91,7 +91,21 @@ td.mono,.mono{font-family:var(--mono);font-size:12.5px}
 .tag.own{border-color:rgba(60,245,154,.6);color:var(--ok);background:rgba(60,245,154,.07)}
 .tag.foreign{border-color:rgba(255,59,92,.7);color:var(--bad);background:rgba(255,59,92,.08);animation:pulse 1.6s infinite}
 .tag.mrr{border-color:rgba(25,215,255,.6);color:var(--cyan);background:rgba(25,215,255,.07)}
-.tag.pyb{border-color:rgba(247,147,26,.6);color:var(--accent2);background:rgba(247,147,26,.07)}
+.tag.pyb{border-color:rgba(185,107,255,.7);color:var(--pyb);background:rgba(185,107,255,.1)}
+.tag.mrrb{border-color:rgba(25,215,255,.6);color:var(--cyan);background:rgba(25,215,255,.07)}
+.pybbox{border:1px solid rgba(185,107,255,.35);background:rgba(185,107,255,.04);padding:12px 14px;margin-bottom:16px;position:relative}
+.pybbox::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--pyb);box-shadow:0 0 10px var(--pyb)}
+.pybbox h3{margin:0 0 8px;font:700 12px var(--display);letter-spacing:2px;text-transform:uppercase;color:var(--pyb);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.promo{display:inline-block;padding:2px 9px;font:700 11px var(--ui);letter-spacing:1px;color:#140a00;background:linear-gradient(135deg,#ffd23f,#f7931a)}
+#t-pyb th{color:#d6b3ff;background:rgba(185,107,255,.06)} #t-pyb td,#t-pyb th{padding:7px 8px}
+#t-pyb select{width:auto;padding:4px 6px;font-size:12.5px}
+button.pybbtn{background:linear-gradient(135deg,#b96bff,#7d3fd6);border-color:transparent;color:#fff;font-weight:700}
+button.pybbtn:hover{box-shadow:0 0 18px rgba(185,107,255,.6);color:#fff}
+.vrow.pyb{border-left:2px solid var(--pyb);padding-left:10px;background:rgba(185,107,255,.035)}
+.vb.p i{background:linear-gradient(90deg,rgba(185,107,255,.35),var(--pyb));box-shadow:0 0 8px rgba(185,107,255,.6)}
+.verd.pend{color:#d6b3ff;border-color:rgba(185,107,255,.6);background:rgba(185,107,255,.08)}
+.pybpay{text-align:center}.pybpay canvas{width:230px;height:230px;background:#fff;padding:8px;margin:8px auto;display:block}
+.pybpay .inv{font:500 11px var(--mono);word-break:break-all;color:var(--muted);cursor:pointer;max-height:70px;overflow:auto;border:1px dashed var(--line2);padding:6px;margin:6px 0}
 .tag.idle{border-color:rgba(255,210,63,.5);color:var(--warn);background:rgba(255,210,63,.06)}
 .hbar{display:inline-block;vertical-align:middle;width:64px;height:5px;background:#0d1322;border:1px solid var(--line);margin-left:8px;overflow:hidden}
 .hbar i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--accent));box-shadow:0 0 8px var(--cyan)}
@@ -147,8 +161,8 @@ canvas.spark{width:150px;height:34px;display:block}
 .vface{display:flex;flex-direction:column;align-items:center;gap:2px}.vface .star{font-size:26px}
 .star.on{color:#ffd23f;text-shadow:0 0 10px rgba(255,210,63,.7)}.star:hover{box-shadow:none;color:#ffd23f}
 #t-market tr.fav{background:rgba(255,210,63,.05)}
-#t-market td.pc{font-family:var(--mono);font-weight:700}
-#t-market td.pg{color:#3cf59a;text-shadow:0 0 6px rgba(60,245,154,.35)} #t-market td.py{color:#ffd23f;text-shadow:0 0 6px rgba(255,210,63,.35)} #t-market td.pr{color:#ff3b5c;text-shadow:0 0 6px rgba(255,59,92,.35)}
+#t-market td.pc,#t-pyb td.pc{font-family:var(--mono);font-weight:700}
+#t-market td.pg,#t-pyb td.pg{color:#3cf59a;text-shadow:0 0 6px rgba(60,245,154,.35)} #t-market td.py,#t-pyb td.py{color:#ffd23f;text-shadow:0 0 6px rgba(255,210,63,.35)} #t-market td.pr,#t-pyb td.pr{color:#ff3b5c;text-shadow:0 0 6px rgba(255,59,92,.35)}
 #t-market tr.best{background:rgba(25,215,255,.06)} .tag.best{border-color:rgba(25,215,255,.6);color:var(--cyan);font-size:10px;padding:1px 5px}
 .vrow a.rn{color:var(--text)}.vrow a.rn:hover{color:var(--cyan2)}
 .flag{font-size:17px;vertical-align:-2px;margin-right:5px}
@@ -270,6 +284,7 @@ body.nobot #hashcard{grid-column:span 12}
 
   <section class="card span12 audit-only"><i class="corner tr"></i><i class="corner bl"></i>
     <h2><span id="v-title">Alquileres</span> <span class="right">pagado · lo que dice MRR · lo que llega al gateway</span></h2>
+    <div id="pyb-orders"></div>
     <div id="verdicts" class="muted">consultando…</div>
   </section>
 
@@ -294,7 +309,7 @@ body.nobot #hashcard{grid-column:span 12}
     </tr></thead><tbody></tbody></table></div>
     <div class="legend">
       <span><span class="tag mrr">MRR proxy</span> rig alquilado en MiningRigRentals (llega vía su proxy)</span>
-      <span><span class="tag pyb">PyBLOCK rental</span> hashrate alquilado desde la app de PyBLOCK</span>
+      <span><span class="tag pyb">PyBLOCK rental</span> hashrate alquilado en PyBLØCK (worker <span class="mono">pyb…</span> si lo pediste desde aquí)</span>
       <span><span class="tag own">propia</span> paga a una dirección tuya</span>
       <span><span class="tag foreign">ajena</span> alguien de la comunidad minando a su propia dirección</span>
       <span><span class="tag idle">sin suscribir</span> conexión TCP abierta que nunca envió <code>mining.subscribe</code> (escáneres de puertos, sondas, clientes mal configurados)</span>
@@ -302,7 +317,8 @@ body.nobot #hashcard{grid-column:span 12}
   </section>
 
   <section class="card span6 noaudit-only"><i class="corner tr"></i><i class="corner bl"></i>
-    <h2>Rentas activas en MRR</h2>
+    <h2>Rentas activas <span class="tag mrrb">MRR</span> <span class="tag pyb">PyBLØCK</span></h2>
+    <div id="pyb-orders2"></div>
     <div id="rentals"></div>
   </section>
 
@@ -315,6 +331,15 @@ body.nobot #hashcard{grid-column:span 12}
     <h2>Mercado Blake2B <span class="muted" style="font:500 12px var(--ui);letter-spacing:0;text-transform:none">rigs usables, más baratos primero · alquilar a mano</span>
       <span class="right row"><label class="muted" style="display:inline-flex;gap:5px;align-items:center;font:600 12px var(--ui)"><input type="checkbox" id="only-fav" style="width:auto"> solo ⭐</label> presupuesto <input id="mkt-budget" type="number" step="0.0001" style="width:130px" placeholder="auto"> <button id="btn-market" class="small">Actualizar</button></span>
     </h2>
+    <div class="pybbox" id="pyb-box" style="display:none">
+      <h3><span class="tag pyb">PyBLØCK</span> paquetes de hashrate <span id="pyb-promo"></span><span class="right muted" style="margin-left:auto;font:500 12px var(--mono);letter-spacing:0;text-transform:none" id="pyb-info"></span></h3>
+      <div class="muted" style="font-size:12.5px;margin-bottom:8px" id="pyb-where"></div>
+      <div class="scroll"><table id="t-pyb"><thead><tr>
+        <th>Paquete</th><th title="TH/s por unidad">TH/s</th><th>Horas</th><th title="Unidades (máquinas); el precio no es lineal: cada paso tiene el suyo">Uds</th><th title="TH/s totales del pedido">Total TH/s</th><th class="pyb-unit-tot">sats</th><th class="pyb-unit-day" title="Total / TH / días">sats/TH/día</th><th title="Frente al mercado de MRR (últimos 10 alquileres, con su fee). Negativo = PyBLØCK más barato">vs MRR</th><th>Pago</th><th></th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="muted" style="font-size:12px;margin-top:6px">Mismo «sats» que el mercado de MRR. Solo se pide si confirmas; la factura la pagas tú desde tu wallet (aquí no se paga nada solo). Sin reembolsos, según PyBLØCK.</div>
+    </div>
+    <h3 style="margin:4px 0 8px;font:700 12px var(--display);letter-spacing:2px;text-transform:uppercase;color:var(--cyan2)"><span class="tag mrrb">MRR</span> MiningRigRentals</h3>
     <div class="row rw" style="margin-bottom:10px">
       <label style="font:600 10px var(--ui);color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">Address de cobro de lo que alquiles aquí</label>
       <input id="rent-addr" style="flex:1;min-width:260px" placeholder="vacío = la del perfil de pool de MRR" spellcheck="false">
@@ -337,6 +362,7 @@ body.nobot #hashcard{grid-column:span 12}
 </main>
 
 <div class="toast" id="toast"></div>
+<dialog id="pyb-dlg"><div class="pybpay" id="pyb-pay"></div><div class="row" style="justify-content:flex-end;margin-top:12px"><button id="pyb-dlg-close">Cerrar</button></div></dialog>
 <dialog id="dlg"><div id="dlg-body"></div><div class="row" style="justify-content:flex-end;margin-top:16px"><button id="dlg-no">Cancelar</button><button id="dlg-yes" class="primary">Confirmar</button></div></dialog>
 
 <script>
@@ -414,6 +440,7 @@ function render(d){
   const f=$('#cfg'); if(!f.dataset.dirty){ for(const [k,v] of Object.entries(d.config)){ const el=f.elements[k]; if(!el) continue; el.value = Array.isArray(v)? v.join(', ') : (typeof v==='boolean'? String(v) : v); } }
   renderClients(gw, d.own_addresses||[]);
   renderRentals(mrr);
+  renderPyb(d.pyblock);
   drawChart(d.history||[]);
 }
 
@@ -613,7 +640,7 @@ function renderAudit(){
   const shared=rs.length-ev.length;
   const mx=Math.max(c,m,d,1);
   const bar=(cls,lab,v)=>`<div class="vb ${cls}"><span>${lab}</span><div class="tr"><i style="width:${(v/mx*100).toFixed(1)}%"></i></div><b>${v.toFixed(1)} TH/s</b></div>`;
-  $('#cotejo').innerHTML = !rs.length ? '<div class="muted">sin rentas activas</div>' : `<div class="big3">
+  $('#cotejo').innerHTML = !rs.length ? '<div class="muted">sin rentas activas en MRR</div>'+pybCotejo(0) : `<div class="big3">
      <div><div class="muted" style="font-size:12px;letter-spacing:2px;text-transform:uppercase">llega al gateway</div>
        <div class="n" style="color:var(--accent2);text-shadow:0 0 14px rgba(247,147,26,.6)">${d.toFixed(1)} TH/s</div>
        <div class="muted">${c?(d/c*100).toFixed(1):'–'}% de lo pagado · ${m?(d/m*100).toFixed(1):'–'}% de lo que dice MRR</div></div>
@@ -621,11 +648,11 @@ function renderAudit(){
      <div>${bad?`<span class="verd short">${bad} corto${bad>1?'s':''}</span>`:'<span class="verd ok">ninguno corto</span>'}
        <span class="muted" style="margin-left:8px">${ev.length} medidos${shared?' · '+shared+' con worker compartido':''}</span>
        ${audit.sync&&audit.sync.error?'<div class="bad" style="margin-top:6px">MRR: '+esc(audit.sync.error)+'</div>':''}</div>
-     ${runway(rs)}</div>`;
+     ${runway(rs)}${pybCotejo(c)}</div>`;
   const mx2=Math.max(1,...rs.map(x=>Math.max(x.advertised_th,x.mrr_average_th||0,x.analysis?x.analysis.delivered_th:0)));
   const b2=(cls,lab,v,ex)=>`<div class="vb ${cls}"><span>${lab}</span><div class="tr"><i style="width:${((v||0)/mx2*100).toFixed(1)}%"></i></div><b>${v==null?'–':v.toFixed(2)}${ex||''}</b></div>`;
   rs.sort((p,q)=>q.advertised_th-p.advertised_th);
-  $('#v-title').textContent = rs.length===1 ? '1 alquiler' : rs.length+' alquileres';
+  $('#v-title').textContent = rentTitle(rs.length);
   $('#verdicts').innerHTML = rs.length? rs.map(x=>{ const a=x.analysis||{verdict:'none'};
     const got=a.delivered_th, pct=a.pct;
     const isFav=x.rig_id!=null && favSet().has(String(x.rig_id));
@@ -705,6 +732,143 @@ async function loadHistory(){
 async function loadAudit(){ try{ audit=await api('/api/audit'); renderAudit(); if(state) renderRentals(state.mrr); }catch(e){ const el=$('#cotejo'); if(el) el.textContent='auditoría no disponible: '+e.message; } }
 window.addEventListener('resize', drawChart2);
 loadAudit(); setInterval(loadAudit, 60000); setInterval(loadHistory, 300000);
+
+// ---------------------------------------------------------------- PyBLØCK (pyblock.py)
+let pyb=null, pybCatAt=null, pybSel={}, pybPayRef=null, pybPayTimer=null, pybCount=null, pybQR=null;
+const PAYM={ln:'⚡ LN '+'(SHA-256)', xbtln:'⚡ LN BLAKE2b (Laguz)', xbt:'on-chain BLAKE2b'};
+const PYB_FINAL=['completed','expired','cancelled','failed','not_found'];
+const pct = v => v==null ? '–' : (v>0?'+':'')+(v*100).toFixed(0)+' %';
+function pybLive(){ return ((pyb&&pyb.orders)||[]).filter(o=>o.live); }
+function rentTitle(n){ const k=pybLive().length; return (n===1?'1 alquiler':n+' alquileres')+' MRR'+(k?' + '+k+' PyBLØCK':''); }
+function pybCotejo(mrrTh){
+  const t=pyb&&pyb.totals; if(!t||!t.active) return '';
+  return `<div class="runway"><span class="tag pyb">PyBLØCK</span> ${t.active} activo${t.active>1?'s':''}: <b style="color:var(--pyb)">${t.th.toFixed(1)} TH/s</b> contratados · PyBLØCK dice ${t.live_ths.toFixed(1)} · gateway ${t.gateway_th.toFixed(1)} TH/s
+    <div class="muted" style="margin-top:4px">Total alquilado: <b style="font-size:14px">${(mrrTh+t.th).toFixed(1)} TH/s</b> (MRR ${mrrTh.toFixed(1)} + PyBLØCK ${t.th.toFixed(1)})</div></div>`;
+}
+function stepOf(p, q){ return p.steps.find(s=>s.qty===q) || p.steps[0]; }
+function renderPyb(d){
+  pyb = d && d.enabled ? d : null;
+  $('#pyb-box').style.display = pyb ? '' : 'none';
+  if(!pyb){ ['#pyb-orders','#pyb-orders2'].forEach(s=>{ const e=$(s); if(e) e.innerHTML=''; }); return; }
+  // KPI: active rentals of both, labelled
+  const live=pybLive(), mr=(state&&state.mrr&&state.mrr.rentals)||[];
+  if(live.length){ $('#k-rentals').innerHTML = esc(mr.length)+' <span style="color:var(--pyb);font-size:.7em">+'+live.length+' PyBLØCK</span>';
+    $('#k-rentals-s').textContent = 'MRR '+mr.reduce((s,x)=>s+(x.advertised_th||0),0).toFixed(1)+' TH/s · PyBLØCK '+pyb.totals.th.toFixed(1)+' TH/s'; }
+  if(audit && audit.enabled) $('#v-title').textContent = rentTitle((audit.rentals||[]).length);
+  renderPybMarket();
+  const html = renderPybOrders();
+  $('#pyb-orders').innerHTML = html; const o2=$('#pyb-orders2'); if(o2) o2.innerHTML = html;
+  document.querySelectorAll('button[data-pybpay]').forEach(b=>b.onclick=()=>openPay(b.dataset.pybpay));
+  document.querySelectorAll('button[data-pybforget]').forEach(b=>b.onclick=async()=>{
+    if(!await confirmDlg('<b>Quitar este pedido de la lista</b><p class="muted">Solo se borra de este panel (y su identificador secreto con él).</p>')) return;
+    try{ await api('/api/pyblock/forget',{ref:b.dataset.pybforget}); refresh(); }catch(e){ toast(e.message,true); } });
+}
+function renderPybMarket(){
+  const cat=pyb.catalog, u=L().unit;
+  $('#pyb-where').innerHTML = pyb.gateway
+    ? `Mina a tu gateway <span class="mono">${esc(pyb.gateway)}</span>${pyb.backup?' (respaldo <span class="mono">'+esc(pyb.backup)+'</span>)':''} como <span class="mono">${esc(pyb.address||'¿?')}.pyb…</span> <span class="muted">(${esc(pyb.address_source)})</span>
+       <button class="small" id="pyb-gwtest" title="El mismo chequeo que hace PyBLØCK antes de aceptar un pedido (no crea nada)">Probar gateway</button> <span id="pyb-gwres">${gwRes(pyb.gateway_test)}</span>`
+    : '<span class="warn">Falta <span class="mono">pyblock.gateway</span> (host y port públicos de tu DATUM gateway) en config.json: sin eso no se puede pedir.</span>';
+  const t=$('#pyb-gwtest'); if(t) t.onclick=async()=>{ $('#pyb-gwres').textContent='probando…'; try{ $('#pyb-gwres').innerHTML=gwRes(await api('/api/pyblock/gateway-test?force=1')); }catch(e){ $('#pyb-gwres').innerHTML='<span class="bad">'+esc(e.message)+'</span>'; } };
+  if(!cat){ $('#pyb-info').textContent=''; $('#t-pyb tbody').innerHTML=`<tr><td colspan="10" class="bad">${esc(pyb.error||'catálogo no disponible')}</td></tr>`; return; }
+  $('#pyb-info').textContent = (pyb.error?pyb.error+' · ':'')+'límites '+(cat.limits.min_hours||'?')+'–'+(cat.limits.max_hours||'?')+' h · máx '+(cat.limits.max_order_th||'?')+' TH/pedido · '+new Date(cat.at*1000).toLocaleTimeString();
+  $('#pyb-promo').innerHTML = cat.promo ? `<span class="promo">−${esc(cat.promo.discount_pct)} %${cat.promo.until?' hasta '+new Date(cat.promo.until*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):''}</span>` : '';
+  document.querySelectorAll('.pyb-unit-tot').forEach(e=>e.textContent=u); document.querySelectorAll('.pyb-unit-day').forEach(e=>e.textContent=u+'/TH/día');
+  if(pybCatAt===cat.at+'/'+cat.mrr_ref && $('#t-pyb tbody').children.length) return;   // keep the user's selections
+  pybCatAt=cat.at+'/'+cat.mrr_ref;
+  const pays=cat.pay_methods;
+  $('#t-pyb tbody').innerHTML = cat.packages.map(p=>{
+    const sel=pybSel[p.id]||(pybSel[p.id]={qty:1,pay:pays[0]}), st=stepOf(p, sel.qty);
+    return `<tr class="${p.available?'':'muted'}" data-pid="${esc(p.id)}">
+      <td class="mono">${esc(p.id)}</td><td class="th1 ${p.unit_th>=50?'xl':p.unit_th>=15?'l':p.unit_th>=5?'m':'s'}">${fmtTh(p.unit_th)}</td><td>${p.hours} h</td>
+      <td><select data-q="${esc(p.id)}" ${p.available?'':'disabled'}>${p.steps.map(s=>`<option value="${s.qty}" ${s.qty===sel.qty?'selected':''}>${s.qty}</option>`).join('')}</select></td>
+      <td class="c-th">${fmtTh(st.th)}</td><td class="mono c-tot" title="${esc(altOf(st.total_sats/1e8))}">${st.total_sats.toLocaleString()}</td>
+      <td class="mono c-day">${st.sat_th_day!=null?Math.round(st.sat_th_day).toLocaleString():'–'}</td>
+      <td class="pc c-vs ${st.vs_mrr==null?'':st.vs_mrr<=0?'pg':st.vs_mrr<=0.1?'py':'pr'}" title="MRR: ${cat.mrr_ref?Math.round(cat.mrr_ref).toLocaleString()+' '+esc(u)+'/TH/día':'sin dato'}">${pct(st.vs_mrr)}</td>
+      <td><select data-pay="${esc(p.id)}" ${p.available?'':'disabled'}>${pays.map(m=>`<option value="${esc(m)}" ${m===sel.pay?'selected':''}>${esc(PAYM[m]||m)}</option>`).join('')}</select></td>
+      <td>${p.available?`<button class="small pybbtn" data-pybrent="${esc(p.id)}" ${pyb.gateway?'':'disabled'}>Alquilar</button>`:'<span class="muted">agotado</span>'}</td></tr>`; }).join('')
+    || '<tr><td colspan="10" class="muted">PyBLØCK no tiene paquetes ahora mismo</td></tr>';
+  $('#t-pyb tbody').querySelectorAll('select[data-q]').forEach(e=>e.onchange=()=>{ const p=cat.packages.find(x=>x.id===e.dataset.q); pybSel[p.id].qty=parseInt(e.value);
+    const st=stepOf(p,pybSel[p.id].qty), tr=e.closest('tr');
+    tr.querySelector('.c-th').textContent=fmtTh(st.th); tr.querySelector('.c-tot').textContent=st.total_sats.toLocaleString();
+    tr.querySelector('.c-day').textContent=st.sat_th_day!=null?Math.round(st.sat_th_day).toLocaleString():'–';
+    const v=tr.querySelector('.c-vs'); v.textContent=pct(st.vs_mrr); v.className='pc c-vs '+(st.vs_mrr==null?'':st.vs_mrr<=0?'pg':st.vs_mrr<=0.1?'py':'pr'); });
+  $('#t-pyb tbody').querySelectorAll('select[data-pay]').forEach(e=>e.onchange=()=>{ pybSel[e.dataset.pay].pay=e.value; });
+  $('#t-pyb tbody').querySelectorAll('button[data-pybrent]').forEach(b=>b.onclick=()=>pybRent(cat.packages.find(x=>x.id===b.dataset.pybrent)));
+}
+function gwRes(r){ if(!r) return ''; return r.ok ? '<span class="ok">✓ PyBLØCK acepta el gateway</span>' : '<span class="bad">✗ '+esc(r.error||'no pasa el chequeo')+'</span>'; }
+function newNonce(){ const a=new Uint8Array(16); crypto.getRandomValues(a); return 'mcc-'+[...a].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+async function pybRent(p){
+  const sel=pybSel[p.id], st=stepOf(p, sel.qty), u=L().unit, cat=pyb.catalog;
+  if(!await confirmDlg(`<b><span class="tag pyb">PyBLØCK</span> Alquilar ${sel.qty}× ${esc(p.id)}</b>
+    <p>${fmtTh(st.th)} durante <b>${p.hours} h</b> = ${(st.th*p.hours).toFixed(0)} TH·h<br>
+    Total: <b>${st.total_sats.toLocaleString()} ${esc(u)}</b>${altOf(st.total_sats/1e8)?' <span class="muted">≈ '+esc(altOf(st.total_sats/1e8))+'</span>':''} · ${st.sat_th_day!=null?Math.round(st.sat_th_day).toLocaleString():'–'} ${esc(u)}/TH/día (${pct(st.vs_mrr)} vs MRR)${cat.promo?' · promo −'+esc(cat.promo.discount_pct)+' % ya incluida':''}<br>
+    Pago: <b>${esc(PAYM[sel.pay]||sel.pay)}</b></p>
+    <p>Gateway: <span class="mono">${esc(pyb.gateway)}</span>${pyb.backup?' · respaldo <span class="mono">'+esc(pyb.backup)+'</span>':''}<br>Cobro: <span class="mono" style="word-break:break-all">${esc(pyb.address)}</span>.pyb… <span class="muted">(${esc(pyb.address_source)})</span></p>
+    <p class="muted">PyBLØCK comprueba el gateway y devuelve una factura que caduca enseguida: la pagas tú desde tu wallet. Sin reembolsos. Solo se pide si confirmas.</p>`)) return;
+  const body={package:p.id, qty:sel.qty, pay:sel.pay, client_nonce:newNonce()};   // same nonce on every retry = same order
+  for(;;){
+    let r, j;
+    try{ r=await fetch('/api/pyblock/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); j=await r.json(); }
+    catch(e){ j={ok:false,error:'sin respuesta del panel: '+e.message,retryable:true}; }
+    if(j.ok){ toast('PyBLØCK: pedido creado; paga la factura'); refresh(); openPay(j.order.ref, j.order); return; }
+    if(!j.retryable){ await confirmDlg(`<b class="bad">PyBLØCK no ha aceptado el pedido</b><p>${esc(j.error||'error')}</p><p class="muted">No se ha creado nada.</p>`); return; }
+    if(!await confirmDlg(`<b class="warn">No se pudo completar el pedido</b><p>${esc(j.error||'error')}</p><p class="muted">Reintentar usa el mismo identificador de pedido: PyBLØCK no lo duplica.</p>`)) { refresh(); return; }
+  }
+}
+function renderPybOrders(){
+  const os=(pyb.orders||[]).filter(o=>!PYB_FINAL.includes(o.status) || (Date.now()/1000-(o.created||0))<86400*3);
+  if(!os.length) return '';
+  const mx=Math.max(1,...os.map(o=>Math.max(o.th||0,o.live_ths||0,o.gateway_th||0)));
+  const b=(cls,lab,v)=>`<div class="vb ${cls}"><span>${lab}</span><div class="tr"><i style="width:${((v||0)/mx*100).toFixed(1)}%"></i></div><b>${v==null?'–':v.toFixed(2)}</b></div>`;
+  return os.map(o=>{
+    const pend=o.status==='pending_payment'||o.status==='draft', fin=PYB_FINAL.includes(o.status);
+    const vcls=o.live?'ok':pend?'pend':o.status==='completed'?'ok':fin?'short':'starting';
+    return `<div class="vrow pyb"><div><span class="tag pyb">PyBLØCK</span> <b>${o.qty}× ${esc(o.package)}</b>
+        <div class="muted mono" style="font-size:11.5px">${esc(o.worker)} · ${new Date(o.created*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} · ${esc(PAYM[o.pay]||o.pay)}</div>
+        <div class="vexp"><span>contratado <b>${(o.th||0).toFixed(2)} TH/s</b> × ${o.hours} h</span><span>${(o.total_sats||0).toLocaleString()} ${esc(L().unit)}</span></div>
+        <div class="addr">→ ${esc(o.address)} · ${esc(o.gateway)}</div>
+        ${o.error?'<div class="warn" style="font-size:12px">'+esc(o.error)+'</div>':''}</div>
+      <div class="vmid"><div class="left ${(o.left_h!=null&&o.left_h<6)?'soon':''}" title="Tiempo que le queda (según PyBLØCK)"><b>${o.left_h!=null?fmtLeft(o.left_h):'–'}</b><span>quedan</span></div>
+        <div class="vbars">${b('c','contratado',o.th)}${b('p','PyBLØCK',o.live_ths)}${b('d','gateway',o.gateway_th)}</div></div>
+      <div><span class="verd ${vcls}">${esc(o.status_label||o.status)}</span>${o.percent_done!=null&&o.live?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+o.percent_done.toFixed(1)+' % entregado</div>':''}
+        <div class="row" style="margin-top:6px">${pend&&o.payment&&o.sent?`<button class="small pybbtn" data-pybpay="${esc(o.ref)}">Pagar</button>`:''}
+        ${o.has_link?`<a class="small" href="/api/pyblock/open?ref=${encodeURIComponent(o.ref)}" target="_blank" rel="noopener noreferrer">ver en PyBLØCK ↗</a>`:''}
+        ${(fin||!o.sent)?`<button class="small" data-pybforget="${esc(o.ref)}">Quitar</button>`:''}</div></div></div>`; }).join('');
+}
+function loadQR(){ return window.QRious ? Promise.resolve() : new Promise((ok,ko)=>{ const s=document.createElement('script');
+  s.src='https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js'; s.onload=ok; s.onerror=ko; document.head.appendChild(s); }); }
+function openPay(ref, order){
+  pybPayRef=ref; const d=$('#pyb-dlg'); if(!d.open) d.showModal();
+  drawPay(order || ((pyb&&pyb.orders)||[]).find(o=>o.ref===ref));
+  clearInterval(pybPayTimer); pybPayTimer=setInterval(async()=>{
+    if(!$('#pyb-dlg').open){ clearInterval(pybPayTimer); return; }
+    try{ const r=await api('/api/pyblock/refresh',{ref}); drawPay(r.order); if(r.order.status!=='pending_payment'){ clearInterval(pybPayTimer); refresh(); } }catch(e){}
+  }, 10000);
+}
+$('#pyb-dlg-close').onclick=()=>{ $('#pyb-dlg').close(); clearInterval(pybPayTimer); clearInterval(pybCount); };
+function drawPay(o){
+  const el=$('#pyb-pay'); if(!o){ el.innerHTML='<div class="muted">pedido no encontrado</div>'; return; }
+  const pay=o.payment||{}, head=`<b><span class="tag pyb">PyBLØCK</span> ${o.qty}× ${esc(o.package)} · ${(o.th||0).toFixed(2)} TH/s × ${o.hours} h</b>`;
+  clearInterval(pybCount);
+  if(o.status!=='pending_payment'){ el.innerHTML=head+`<p style="margin-top:14px"><span class="verd ${o.live?'ok':PYB_FINAL.includes(o.status)?'short':'starting'}">${esc(o.status_label||o.status)}</span></p>`+(o.live?'<p class="ok">Pagado: el hashrate va hacia tu gateway.</p>':''); return; }
+  const isX = !pay.invoice && pay.xbt_address;
+  const amount = isX || o.pay==='xbtln' ? (pay.xbt_amount!=null?esc(pay.xbt_amount)+' BTC (BLAKE2b)':'') : (o.total_sats||0).toLocaleString()+' '+esc(L().unit);
+  const code = isX ? pay.xbt_address : pay.invoice;
+  el.innerHTML = head+`<p class="muted" style="margin:6px 0 0">${isX?'Envía <b>exactamente</b> esta cantidad a esta dirección (la cantidad identifica el pedido)':'Paga esta factura desde tu wallet'} · ${esc(PAYM[o.pay]||o.pay)}</p>
+    <canvas id="pyb-qr"></canvas><div class="inv" id="pyb-inv" title="Clic para copiar">${esc(code||'sin datos de pago')}</div>
+    <div><b style="font-size:16px">${amount}</b> · caduca en <b id="pyb-exp">–</b></div>
+    <div class="row" style="justify-content:center;margin-top:8px"><button class="small" id="pyb-copy">Copiar ${isX?'dirección':'factura'}</button>${isX&&pay.xbt_amount!=null?'<button class="small" id="pyb-copyamt">Copiar cantidad</button>':''}</div>
+    <div class="muted" style="font-size:12px;margin-top:8px">Se comprueba cada 10 s. ${pay.xbt_seen?'<span class="ok">Pago visto, esperando confirmaciones ('+esc(pay.xbt_confs||0)+'/'+esc(pay.xbt_confs_needed||'?')+')</span>':''}</div>`;
+  const copy=t=>navigator.clipboard.writeText(t).then(()=>toast('Copiado'),()=>toast('No se pudo copiar',true));
+  $('#pyb-copy').onclick=$('#pyb-inv').onclick=()=>code&&copy(code);
+  const ca=$('#pyb-copyamt'); if(ca) ca.onclick=()=>copy(String(pay.xbt_amount));
+  if(code) loadQR().then(()=>{ new QRious({element:$('#pyb-qr'), size:230, value:isX?code:'lightning:'+code}); }).catch(()=>{ $('#pyb-qr').style.display='none'; });
+  else $('#pyb-qr').style.display='none';
+  const tick=()=>{ const e=$('#pyb-exp'); if(!e) return; if(!pay.expires_at){ e.textContent='?'; return; }
+    const s=Math.max(0,Math.round(pay.expires_at-Date.now()/1000)); e.textContent=s>=60?Math.floor(s/60)+'m '+(s%60)+'s':s+'s'; e.className=s<60?'bad':''; };
+  tick(); pybCount=setInterval(tick,1000);
+}
 </script>
 </body>
 </html>

@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import mrr_bot  # noqa: E402
 import audit as audit_mod  # noqa: E402
+import pyblock as pyb_mod  # noqa: E402
 
 WWW = os.path.join(HERE, "www")
 HISTORY_PATH = os.path.join(HERE, "history.json")
@@ -58,6 +59,8 @@ lock = threading.Lock()
 SESSIONS = {}
 AUDIT = [None]            # audit.Audit instance when enabled
 AUDIT_PREFIX = ["mrr"]
+PYB = [None]              # pyblock.PyBlock instance when enabled
+PYB_PREFIX = ["pyb"]
 LOGIN_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MRR Command Center</title><link rel="icon" href="/favicon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600&family=JetBrains+Mono&display=swap">
@@ -218,6 +221,8 @@ def parse_clients(html, own_addresses):
         hr_m = re.match(r"(.*?h/s)\s*\(([\d.]+)s\)", hr, re.I)
         if not entry["label"] and re.fullmatch(re.escape(AUDIT_PREFIX[0]) + r"\d+", worker or ""):
             entry["label"] = "MRR proxy"   # worker given by the audit; the proxies' rDNS is not always set
+        if not entry["label"] and re.fullmatch(re.escape(PYB_PREFIX[0]) + r"[0-9a-f]{6}", worker or ""):
+            entry["label"] = "PyBLOCK rental"   # worker given to PyBLØCK orders made here
         entry.update({
             "subscribed": True, "user": user, "address": addr, "worker": worker,
             "own": (addr in own_addresses) if own_addresses else None,
@@ -547,6 +552,31 @@ def extend_rental(rental_id, hours, quote_only):
     return {"summary": summary, "result": res}
 
 
+# ----------------------------------------------------------------------------- PyBLØCK
+def mrr_ref_sats():
+    """MRR's market price (last 10 rentals) in sats/TH/day with MRR's fee: what PyBLØCK is compared with."""
+    with lock:
+        m = (cache["mrr"]["data"] or {}).get("market") or {}
+    if not m.get("last_10"):
+        return None
+    return float(m["last_10"]) * 1e8 * (1 + float(cfg().get("fee_rate") or 0))
+
+
+def profile_address():
+    """Payout address of the MRR pool profile (the user of its first pool, before the worker)."""
+    c = cfg()
+    api = mrr_api(c)
+    p = api.profile(c["profile_id"])
+    mrr_bot.save_state(api.state)
+    pools = sorted(p.get("pools") or [], key=lambda x: int(x.get("priority") or 0))
+    return (pools[0].get("user") or "").split(".", 1)[0] if pools else ""
+
+
+def gateway_clients():
+    with lock:
+        return list((cache["gateway"]["data"] or {}).get("clients") or [])
+
+
 # ----------------------------------------------------------------------------- systemd
 def sysctl(*args, timeout=20):
     r = subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, timeout=timeout)
@@ -697,6 +727,7 @@ class Handler(BaseHTTPRequestHandler):
                     "labels": {"coin": c.get("coin_label") or "BTC", "unit": c.get("unit_label") or "sats",
                                "alt": (c.get("alt_price") or {}).get("label")},
                     "alt_rate": alt_rate()[0],
+                    "pyblock": PYB[0].view() if PYB[0] else {"enabled": False},
                 })
             if url.path == "/api/audit":
                 if not AUDIT[0]:
@@ -710,6 +741,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(AUDIT[0].history() if AUDIT[0] else {"history": [], "favorites": []})
             if url.path == "/api/rig-graph":
                 return self._json(rig_graph(int(q["id"][0]), int(q.get("hours", ["24"])[0])))
+            if url.path == "/api/pyblock":
+                return self._json(PYB[0].view(force="force" in q) if PYB[0] else {"enabled": False})
+            if url.path == "/api/pyblock/gateway-test" and PYB[0]:
+                return self._json(PYB[0].gateway_test(force="force" in q))
+            if url.path == "/api/pyblock/open" and PYB[0]:
+                link = PYB[0].link(q.get("ref", [""])[0])
+                if not link:
+                    return self._json({"error": "sin enlace para ese pedido"}, 404)
+                self.send_response(302)
+                self.send_header("Location", link)
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
             if url.path == "/api/plan" and cfg().get("bot_ui"):
                 return self._json(plan_view())
             if url.path == "/api/log":
@@ -730,7 +775,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "bad json"}, 400)
         try:
             c = cfg()
-            if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address") or (
+            if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address",
+                                                     "/api/pyblock/order") or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
                 return self._json({"ok": False, "error": "read-only dashboard (read_only in config.json)"}, 403)
             if not c.get("bot_ui") and self.path in ("/api/bot", "/api/config"):
@@ -759,6 +805,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(dict(ok=True, **manual_rent(body["rig"], body["hours"])))
             if self.path == "/api/extend":
                 return self._json(dict(ok=True, **extend_rental(body["rental"], body["hours"], body.get("quote_only", False))))
+            if self.path.startswith("/api/pyblock/"):
+                if not PYB[0]:
+                    return self._json({"ok": False, "error": "PyBLØCK está desactivado (pyblock.enabled)"}, 400)
+                try:
+                    if self.path == "/api/pyblock/order":
+                        o = PYB[0].create(str(body.get("package") or ""), int(body.get("qty") or 1),
+                                          str(body.get("pay") or "ln"), str(body.get("client_nonce") or ""))
+                        return self._json({"ok": True, "order": o})
+                    if self.path == "/api/pyblock/refresh":
+                        rec = PYB[0]._find(ref=str(body.get("ref") or ""))
+                        if not rec:
+                            return self._json({"ok": False, "error": "no existe ese pedido"}, 404)
+                        return self._json({"ok": True, "order": PYB[0].public(PYB[0].refresh(rec, force=True))})
+                    if self.path == "/api/pyblock/forget":
+                        PYB[0].forget(str(body.get("ref") or ""))
+                        return self._json({"ok": True})
+                except pyb_mod.OrderError as e:
+                    return self._json({"ok": False, "error": str(e), "retryable": e.retryable,
+                                       "status": e.status}, 409 if not e.retryable else 503)
+                return self._json({"error": "not found"}, 404)
             if self.path == "/api/gateway/kick":
                 status = gateway_post_cmd(cfg(), {"cmd": "kill_client", "tid": int(body["tid"]), "cid": int(body["cid"])})
                 threading.Thread(target=poll_gateway, daemon=True).start()
@@ -779,6 +845,12 @@ def main():
         if c.get("api_key") and c.get("api_secret"):
             threading.Thread(target=audit_mod.sync_loop, daemon=True,
                              args=(AUDIT[0], lambda: mrr_api(cfg()), lambda api: mrr_bot.save_state(api.state))).start()
+    p = pyb_mod.settings(c)
+    if p.get("enabled", True):
+        PYB_PREFIX[0] = p.get("worker_prefix") or "pyb"
+        PYB[0] = pyb_mod.PyBlock(HERE, cfg, notify=mrr_bot.telegram, gateway_clients=gateway_clients,
+                                 mrr_ref=mrr_ref_sats, address_fallback=profile_address)
+        threading.Thread(target=PYB[0].loop, daemon=True).start()
     threading.Thread(target=gateway_loop, daemon=True).start()
     port = int(raw.get("dashboard_port") or 7160)
     srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
