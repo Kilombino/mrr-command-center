@@ -899,6 +899,9 @@ class Handler(BaseHTTPRequestHandler):
                         if not rec:
                             return self._json({"ok": False, "error": "no existe ese pedido"}, 404)
                         return self._json({"ok": True, "order": PYB[0].public(PYB[0].refresh(rec, force=True))})
+                    if self.path == "/api/pyblock/add":
+                        o = PYB[0].add_external(str(body.get("order") or ""), str(body.get("worker") or ""))
+                        return self._json({"ok": True, "order": o})
                     if self.path == "/api/pyblock/forget":
                         PYB[0].forget(str(body.get("ref") or ""))
                         return self._json({"ok": True})

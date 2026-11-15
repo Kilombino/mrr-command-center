@@ -150,13 +150,16 @@ class Audit:
 
     # ------------------------------------------------------------------ work
     def _work(self, worker, start, end):
-        """Accepted work of `worker` in [start, end]: (difficulty, shares, connections, avg vdiff, last seen)."""
+        """Accepted work of `worker` in [start, end]: (difficulty, shares, connections, avg vdiff, last seen).
+        `worker` may also be a list of workers, measured together."""
+        names = list(worker) if isinstance(worker, (list, tuple, set)) else [worker]
+        cond = "worker IN (%s)" % ",".join("?" * len(names))
         with self.db() as conn:
             rows = conn.execute(
                 "SELECT ts, skey, session_start, shares, vdiff FROM samples"
-                " WHERE worker = ? AND ts >= ? AND ts <= ? ORDER BY skey, ts",
-                (worker, int(start - 2 * self.poll), int(end + self.poll))).fetchall()
-            last = conn.execute("SELECT MAX(ts) FROM samples WHERE worker = ?", (worker,)).fetchone()[0]
+                f" WHERE {cond} AND ts >= ? AND ts <= ? ORDER BY skey, ts",
+                (*names, int(start - 2 * self.poll), int(end + self.poll))).fetchall()
+            last = conn.execute(f"SELECT MAX(ts) FROM samples WHERE {cond}", names).fetchone()[0]
         work = 0.0
         shares = 0
         prev = {}
@@ -218,7 +221,7 @@ class Audit:
         else:
             verdict = "ok"
         return {
-            "worker": worker, "shared": shared,
+            "worker": worker if isinstance(worker, str) or worker is None else ",".join(worker), "shared": shared,
             "observed_from": int(win_start), "partial": win_start > start + 2 * self.poll,
             "elapsed_h": elapsed / 3600, "delivered_th": delivered,
             "pct": delivered / promised * 100 if promised else None,

@@ -48,6 +48,9 @@ PAID = {"paid", "awaiting_review", "submitting", "active"}
 FINAL = {"completed", "expired", "cancelled", "failed", "not_found"}
 NONCE_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 ADDRESS_RE = re.compile(r"^(bc1[02-9ac-hj-np-z]{11,87}|[13][1-9A-HJ-NP-Za-km-z]{25,34})$")
+ORDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+WORKER_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+UNPAID_LABEL = "factura no pagada (caducó)"
 STATE_LABELS = {   # Spanish names shown on the dashboard and in notices
     "draft": "sin enviar", "pending_payment": "esperando pago", "paid": "pagado", "awaiting_review": "en revisión",
     "submitting": "arrancando", "active": "activo", "completed": "terminado", "expired": "caducado",
@@ -218,10 +221,50 @@ def parse_order(raw, now=None):
     if live is None and _num(g("live_hashrate_phs")) is not None:
         live = _num(g("live_hashrate_phs")) * 1000
     out["hashrate_ths"], out["live_ths"] = th, live
-    rem = _num(g("remaining_secs"))
+    rem = _num(g("remaining_secs", "bid_remaining_est_secs"))
     out["ends_at"] = (now + rem) if rem is not None else None
     out["hours"] = _num(g("duration_h", "hours"))
+    out["started_at"] = _num(g("started_at", "bid_started_at"))
+    out["created_at"] = _num(g("created_at"))
+    out["kind"] = g("kind")
+    # where the hashrate goes, when the answer says it (the v1 API does not, so far):
+    # the stratum user (address.worker) and/or the payout address (possibly masked "bc1q…xyz")
+    gwu = o.get("gateway") if isinstance(o.get("gateway"), dict) else {}
+    out["gateway_user"] = _pick(gwu, "user") or g("stratum_user", "pool_user", "gateway_user")
+    out["payout_address"] = g("btc_address", "payout_address") or (o.get("address") if isinstance(o.get("address"), str) else None)
     return out
+
+
+def extract_order_id(text):
+    """The order id from what the owner pastes: the id itself or PyBLØCK's tracking link."""
+    t = str(text or "").strip()
+    if "order=" in t:
+        q = urllib.parse.urlparse(t).query if "://" in t else t.split("?", 1)[-1]
+        t = (urllib.parse.parse_qs(q).get("order") or [""])[0].strip()
+    elif "/" in t:
+        t = t.rstrip("/").rsplit("/", 1)[-1]
+    return t if ORDER_ID_RE.match(t) else None
+
+
+def address_matches(pattern, address):
+    """Full address, or PyBLØCK's masked form 'bc1qabc…wxyz' (prefix … suffix)."""
+    pattern, address = str(pattern or ""), str(address or "")
+    if not pattern or not address:
+        return False
+    for sep in ("…", "..."):
+        if sep in pattern:
+            pre, _, suf = pattern.partition(sep)
+            return len(pre) >= 6 and len(suf) >= 4 and address.startswith(pre) and address.endswith(suf)
+    return pattern == address
+
+
+def is_unpaid(rec):
+    """An order whose invoice ran out without being paid (PyBLØCK calls that 'expired'
+    too): nothing was ever delivered, so it is not a rental that ended."""
+    if rec.get("status") != "expired":
+        return False
+    paid = (rec.get("notified") or {}).get("paid") or rec.get("started_at") or (rec.get("percent_done") or 0) > 0
+    return not paid
 
 
 # ----------------------------------------------------------------------------- HTTP
@@ -436,6 +479,81 @@ class PyBlock:
             self._notice(rec, "created")
         return self.public(rec)
 
+    def _status_extra(self, order_id):
+        """PyBLØCK's own tracking page reads api/hashrate_status.php, which also gives the
+        payout address (masked). Best effort: None when it is not there."""
+        base = self.base()
+        if "/market/" not in base:
+            return None
+        url = base.split("/market/", 1)[0] + "/hashrate_status.php?id=" + urllib.parse.quote(order_id)
+        try:
+            status, raw = http_json("GET", url, timeout=15)
+        except Exception:
+            return None
+        if status >= 400 or not isinstance(raw, dict) or not raw.get("ok"):
+            return None
+        return parse_order(raw)
+
+    def add_external(self, text, worker=""):
+        """Follow an order created outside the panel (PyBLØCK's web or app, any payment
+        method): read it, check it is a rental and keep it like the others. `worker`
+        (optional) is the stratum worker it mines with, or address.worker."""
+        order_id = extract_order_id(text)
+        if not order_id:
+            raise OrderError("pega el identificador del pedido (o el enlace de seguimiento de PyBLØCK)")
+        worker = str(worker or "").strip()
+        w_addr = ""
+        if "." in worker:
+            w_addr, _, worker = worker.partition(".")
+            if not ADDRESS_RE.match(w_addr):
+                raise OrderError("el worker va como nombre o como dirección.nombre")
+        if worker and not WORKER_RE.match(worker):
+            raise OrderError("nombre de worker no válido (letras, números, _ o -)")
+        with self.lock:
+            if any(o.get("order_id") == order_id for o in self.state["orders"]):
+                raise OrderError("ese pedido ya está en el panel")
+        try:
+            status, raw = http_json("GET", f"{self.base()}/rentals/orders/{urllib.parse.quote(order_id)}", timeout=20)
+        except Exception as e:
+            raise OrderError(f"sin respuesta de PyBLØCK: {e}"[:200], retryable=True)
+        if status == 404:
+            raise OrderError("PyBLØCK no conoce ese pedido (revisa que esté entero)")
+        if status >= 400 or not isinstance(raw, dict) or not raw.get("ok"):
+            raise OrderError("PyBLØCK no lo acepta: " + (_err_text(raw) or f"HTTP {status}"),
+                             status=status, retryable=status == 429 or status >= 500)
+        info = parse_order(raw)
+        if not info.get("status") or not info.get("hashrate_ths") or not info.get("hours"):
+            raise OrderError("eso no parece un alquiler de hashrate de PyBLØCK (sin TH/s u horas)")
+        if info.get("kind") and str(info["kind"]).lower() not in ("order", "rental"):
+            raise OrderError(f"eso no es un pedido de alquiler (tipo {info['kind']})")
+        extra = self._status_extra(order_id) or {}
+        gw_user = info.get("gateway_user") or extra.get("gateway_user") or ""
+        if not worker and "." in str(gw_user):
+            w_addr, _, worker = str(gw_user).partition(".")
+        addr = w_addr or info.get("payout_address") or extra.get("payout_address") or ""
+        th, hours = info["hashrate_ths"], info["hours"]
+        rec = {"ref": secrets.token_hex(4), "external": True, "order_id": order_id,
+               "created": info.get("created_at") or time.time(), "added": time.time(),
+               "status": info["status"], "package": "externo", "qty": 1, "th": th, "hours": hours,
+               "total_sats": int(info.get("total_sats") or 0), "pay": info.get("pay_method") or "?",
+               "address": addr, "worker": worker or None,
+               "match": "worker" if worker else ("address" if addr else "none"),
+               "gateway": "", "backup": "", "notified": {}}
+        if info.get("started_at"):
+            rec["started_at"] = info["started_at"]
+        with self.lock:
+            if any(o.get("order_id") == order_id for o in self.state["orders"]):
+                raise OrderError("ese pedido ya está en el panel")
+            self._apply(rec, info)
+            if rec["status"] in PAID:
+                rec["notified"]["paid"] = time.time()     # paid before it got here: no "paid" notice later
+            if rec["status"] in FINAL:
+                rec["notified"]["ended"] = time.time()
+            self.state["orders"].append(rec)
+            self._save()
+        self._notice(rec, "added")
+        return self.public(rec)
+
     def _apply(self, rec, info, raw_status=None):
         for k in ("order_id", "status_url", "tracking_url"):
             if info.get(k):
@@ -444,7 +562,7 @@ class PyBlock:
                                         "xbt_confs", "xbt_confs_needed", "expires_at", "still_payable")}
         if any(v is not None for v in pay.values()):
             rec["payment"] = dict(rec.get("payment") or {}, **{k: v for k, v in pay.items() if v is not None})
-        for k in ("hashrate_ths", "live_ths", "percent_done", "ends_at"):
+        for k in ("hashrate_ths", "live_ths", "percent_done", "ends_at", "started_at"):
             if info.get(k) is not None:
                 rec[k] = info[k]
         if info.get("status"):
@@ -515,7 +633,7 @@ class PyBlock:
             rec = self._find(ref=ref)
             if not rec:
                 raise OrderError("no existe")
-            if rec.get("order_id") and rec.get("status") not in FINAL:
+            if rec.get("order_id") and rec.get("status") not in FINAL and not rec.get("external"):
                 raise OrderError("solo se pueden quitar pedidos terminados o sin enviar")
             self.state["orders"].remove(rec)
             self._save()
@@ -526,13 +644,15 @@ class PyBlock:
 
     # -- notices (no secrets: no order id, no invoice)
     def _notice(self, rec, kind):
-        what = f"{rec['qty']}× {rec['package']} · {rec['th']:g} TH/s × {rec['hours']:g} h · {rec['total_sats']:,} sats ({rec['pay']})"
+        name = "pedido externo" if rec.get("external") else f"{rec['qty']}× {rec['package']}"
+        what = f"{name} · {rec['th']:g} TH/s × {rec['hours']:g} h · {rec['total_sats']:,} sats ({rec['pay']})"
         text = {
+            "added": f"➕ PyBLØCK: pedido hecho fuera del panel añadido ({STATE_LABELS.get(rec.get('status'), rec.get('status'))}) — {what}",
             "created": f"🟧 PyBLØCK: pedido creado, falta pagarlo — {what}",
             "paid": f"✅ PyBLØCK: alquiler pagado ({STATE_LABELS.get(rec.get('status'), rec.get('status'))}) — {what}",
             "ended": f"🏁 PyBLØCK: alquiler {STATE_LABELS.get(rec.get('status'), rec.get('status'))} — {what}",
         }[kind]
-        if kind == "ended" and rec.get("status") == "expired" and not rec["notified"].get("paid"):
+        if kind == "ended" and is_unpaid(rec):
             text = f"⌛ PyBLØCK: la factura caducó sin pagar — {what}"
         rec["notified"][kind] = time.time()
         with self.lock:
@@ -544,20 +664,56 @@ class PyBlock:
 
     # -- views (never the order id, nonce or the secret urls)
     def gateway_th(self, worker):
+        if not worker:
+            return None
         try:
             return sum(c.get("hashrate_th") or 0 for c in self.gateway_clients() if c.get("worker") == worker)
         except Exception:
             return None
 
+    def address_workers(self, rec):
+        """For an external order without a worker of its own: the gateway connections that
+        pay to its address and come from PyBLØCK (their rDNS or user agent), minus the
+        workers of the other orders here and MRR's. An estimate, not a per-order measure."""
+        if rec.get("match") != "address" or not rec.get("address"):
+            return []
+        with self.lock:
+            others = {o.get("worker") for o in self.state["orders"] if o is not rec and o.get("worker")}
+        mrr_re = re.compile(r"^mrr\d+$")
+        out = []
+        try:
+            clients = self.gateway_clients()
+        except Exception:
+            return []
+        for c in clients:
+            w = c.get("worker") or ""
+            if not c.get("subscribed") or not address_matches(rec["address"], c.get("address")):
+                continue
+            if w in others or mrr_re.match(w):
+                continue
+            if c.get("label") == "PyBLOCK rental" or "pyblock" in str(c.get("useragent") or "").lower():
+                out.append(c)
+        return out
+
     def public(self, rec):
         out = {k: rec.get(k) for k in ("ref", "created", "status", "package", "qty", "th", "hours", "total_sats",
                                        "pay", "address", "worker", "gateway", "backup", "hashrate_ths", "live_ths",
-                                       "percent_done", "ends_at", "checked", "error")}
+                                       "percent_done", "ends_at", "checked", "error", "added", "started_at")}
         out["status_label"] = STATE_LABELS.get(rec.get("status"), rec.get("status"))
+        out["unpaid"] = is_unpaid(rec)
+        if out["unpaid"]:
+            out["status_label"] = UNPAID_LABEL
+        out["external"] = bool(rec.get("external"))
+        out["match"] = rec.get("match") or ("worker" if rec.get("worker") else "none")
         out["sent"] = bool(rec.get("order_id"))
         out["has_link"] = bool(rec.get("tracking_url") or rec.get("status_url"))
         out["sat_th_day"] = sat_th_day(rec.get("total_sats"), rec.get("th"), rec.get("hours"))
-        out["gateway_th"] = self.gateway_th(rec.get("worker"))
+        if out["match"] == "address":
+            aw = self.address_workers(rec)
+            out["gateway_th"] = sum(c.get("hashrate_th") or 0 for c in aw)
+            out["address_workers"] = sorted({c.get("worker") or "" for c in aw})
+        else:
+            out["gateway_th"] = self.gateway_th(rec.get("worker"))
         if rec.get("status") in (None, "draft", "pending_payment") or (rec.get("payment") or {}).get("still_payable"):
             out["payment"] = rec.get("payment")
         ends = rec.get("ends_at")
@@ -580,10 +736,16 @@ class PyBlock:
             o["renew_sat_th_day"] = renew_price(cat, (rec.get("th") or 0) / qty, rec.get("hours"), qty)
             o["analysis"] = None
             ends, hours = rec.get("ends_at"), rec.get("hours")
-            if o["live"] and ends and hours:
-                # start = end - length (PyBLØCK gives the remaining seconds, not the start)
+            who = rec.get("worker")
+            if o["match"] == "address":
+                who = o.get("address_workers") or None
+            if o["live"] and ends and hours and who:
+                # start: PyBLØCK's started_at when it gives it, else end - length
+                start = rec.get("started_at") or (ends - hours * 3600)
                 try:
-                    o["analysis"] = self.analyse(rec.get("worker"), ends - hours * 3600, ends, rec.get("th"))
+                    o["analysis"] = self.analyse(who, start, ends, rec.get("th"))
+                    if o["analysis"] and o["match"] == "address":
+                        o["analysis"]["approx"] = True
                 except Exception as e:
                     o["analysis"] = None
                     print(f"[pyblock analyse failed: {e}]", flush=True)
