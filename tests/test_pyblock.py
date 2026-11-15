@@ -22,6 +22,9 @@ FIX = os.path.join(HERE, "fixtures")
 FAKE_ID = "11111111-2222-4333-8444-555555555555"
 FAKE_ADDR = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"      # BIP-173 test vector, not ours
 FAKE_BOLT11 = "lnbc1fakeinvoicefortestsonly"
+EXT_ID = "99999999-8888-4777-8666-555555555555"          # made up: an order created outside the panel
+EXT_UNPAID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+EXT_MASK = FAKE_ADDR[:12] + "\u2026" + FAKE_ADDR[-6:]
 
 
 def load(name):
@@ -82,6 +85,51 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(pyblock._err_text({"ok": False, "error": "invalid payout address"}), "invalid payout address")
 
 
+class ExternalParseTests(unittest.TestCase):
+    def test_extract_order_id(self):
+        self.assertEqual(pyblock.extract_order_id("  " + EXT_ID + " "), EXT_ID)
+        self.assertEqual(pyblock.extract_order_id("https://b.example.org:8443/rentals.php?order=" + EXT_ID + "&lang=es"), EXT_ID)
+        self.assertEqual(pyblock.extract_order_id("https://b.example.org/api/market/v1.php/rentals/orders/" + EXT_ID), EXT_ID)
+        self.assertIsNone(pyblock.extract_order_id(""))
+        self.assertIsNone(pyblock.extract_order_id("abc"))
+        self.assertIsNone(pyblock.extract_order_id("../../etc/passwd x"))
+
+    def test_parse_external_fields(self):
+        o = pyblock.parse_order({"ok": True, "order_id": EXT_ID, "status": "active", "hashrate_ths": 16.1,
+                                 "hours": 48, "started_at": 1000, "created_at": 900, "remaining_secs": 50,
+                                 "gateway": {"host": "h", "port": 1, "user": FAKE_ADDR + ".rig7"}}, now=2000)
+        self.assertEqual(o["started_at"], 1000)
+        self.assertEqual(o["created_at"], 900)
+        self.assertEqual(o["gateway_user"], FAKE_ADDR + ".rig7")
+        o = pyblock.parse_order({"ok": True, "order": {"id": EXT_ID, "btc_address": EXT_MASK, "duration_h": 24,
+                                                       "hashrate_phs": 0.01, "kind": "order"}})
+        self.assertEqual(o["payout_address"], EXT_MASK)
+        self.assertEqual(o["hours"], 24)
+        self.assertAlmostEqual(o["hashrate_ths"], 10)
+
+    def test_address_matches(self):
+        self.assertTrue(pyblock.address_matches(FAKE_ADDR, FAKE_ADDR))
+        self.assertTrue(pyblock.address_matches(EXT_MASK, FAKE_ADDR))
+        self.assertFalse(pyblock.address_matches(EXT_MASK, FAKE_ADDR[:-1] + "x"))
+        self.assertFalse(pyblock.address_matches("bc1\u2026x", FAKE_ADDR))           # too little to go on
+        self.assertFalse(pyblock.address_matches("", FAKE_ADDR))
+
+    def test_unpaid(self):
+        self.assertTrue(pyblock.is_unpaid({"status": "expired", "notified": {}}))
+        self.assertFalse(pyblock.is_unpaid({"status": "expired", "notified": {"paid": 1}}))       # a paid rental that ran out
+        self.assertFalse(pyblock.is_unpaid({"status": "expired", "started_at": 5}))
+        self.assertFalse(pyblock.is_unpaid({"status": "expired", "percent_done": 100}))
+        self.assertFalse(pyblock.is_unpaid({"status": "completed"}))
+        p = pyblock.PyBlock(tempfile.mkdtemp(), lambda: {})
+        pub = p.public({"ref": "r1", "status": "expired", "notified": {}, "order_id": "x" * 20})
+        self.assertTrue(pub["unpaid"])
+        self.assertEqual(pub["status_label"], pyblock.UNPAID_LABEL)
+        self.assertFalse(pub["live"])
+        pub = p.public({"ref": "r2", "status": "expired", "notified": {"paid": 1}})
+        self.assertFalse(pub["unpaid"])
+        self.assertEqual(pub["status_label"], "caducado")
+
+
 class RenewTests(unittest.TestCase):
     def test_renew_price(self):
         cat = pyblock.parse_packages(load("pyblock_packages.json"))
@@ -102,6 +150,8 @@ class Mock(BaseHTTPRequestHandler):
     posts = []
     mode = "ok"            # ok | gateway | ratelimit | down
     status = "pending_payment"
+    ext_status = "active"
+    ext_mask = True
 
     def log_message(self, *a):
         pass
@@ -121,6 +171,22 @@ class Mock(BaseHTTPRequestHandler):
             o = load("pyblock_order_active.json")
             o["order"]["status"] = Mock.status
             return self._send(200, o)
+        if self.path.endswith("/rentals/orders/" + EXT_ID):
+            return self._send(200, {"ok": True, "order_id": EXT_ID, "status": Mock.ext_status, "hashrate_ths": 16.1,
+                                    "live_ths": 15.9, "hours": 48, "percent_done": 10.0, "created_at": 1000,
+                                    "started_at": 1100, "remaining_secs": 150000, "total_sats": 57164,
+                                    "pay_method": "xbt", "still_payable": False, "invoice": None,
+                                    "tracking_url": "https://b.example.org/rentals.php?order=" + EXT_ID})
+        if self.path.endswith("/rentals/orders/" + EXT_UNPAID):
+            return self._send(200, {"ok": True, "order_id": EXT_UNPAID, "status": "expired", "hashrate_ths": 4.5,
+                                    "hours": 24, "percent_done": 0, "started_at": None, "total_sats": 9000,
+                                    "pay_method": "ln", "tracking_url": "https://b.example.org/rentals.php?order=" + EXT_UNPAID})
+        if self.path.endswith("/rentals/orders/not-a-rental-0001"):
+            return self._send(200, {"ok": True, "status": "paid", "kind": "payout"})
+        if "/api/hashrate_status.php?id=" in self.path:
+            if Mock.ext_mask:
+                return self._send(200, {"ok": True, "order": {"id": EXT_ID, "btc_address": EXT_MASK, "kind": "order"}})
+            return self._send(404, {"ok": False})
         if "/payout/gateway-test" in self.path:
             return self._send(200, {"ok": False, "error": "could not connect to host:port"})
         return self._send(404, {"ok": False, "errors": ["Order not found"]})
@@ -150,7 +216,7 @@ class FlowTests(unittest.TestCase):
         cls.srv.shutdown()
 
     def setUp(self):
-        Mock.posts, Mock.mode, Mock.status = [], "ok", "pending_payment"
+        Mock.posts, Mock.mode, Mock.status, Mock.ext_status, Mock.ext_mask = [], "ok", "pending_payment", "active", True
         self.dir = tempfile.mkdtemp()
         self.notices = []
         self.conf = {"rent_address": FAKE_ADDR, "fee_rate": 0.03,
@@ -253,10 +319,110 @@ class FlowTests(unittest.TestCase):
             self.p.create("p1x24", 1, "ln", "nonce-validation-0004")
         self.assertEqual(Mock.posts, [])
 
+    def test_external_by_address(self):
+        clients = [
+            {"subscribed": True, "address": FAKE_ADDR, "worker": "kilo", "hashrate_th": 15.0, "label": "",
+             "useragent": "pyblock-market/1.0"},
+            {"subscribed": True, "address": FAKE_ADDR, "worker": "mrr123", "hashrate_th": 9.0, "label": "MRR proxy",
+             "useragent": "pyblock-market/1.0"},                                # MRR's, not this order's
+            {"subscribed": True, "address": FAKE_ADDR, "worker": "home", "hashrate_th": 1.0, "label": "LAN",
+             "useragent": "cgminer"},                                           # own miner on the same address
+            {"subscribed": True, "address": "bc1qother000000000000000000000000000", "worker": "kilo",
+             "hashrate_th": 7.0, "label": "PyBLOCK rental", "useragent": "pyblock-market/1.0"},
+        ]
+        self.p.gateway_clients = lambda: clients
+        calls = []
+        self.p.analyse = lambda who, s, e, th: calls.append((who, s, e, th)) or {"delivered_th": 15.2, "pct": 94.4, "verdict": "ok"}
+        o = self.p.add_external("https://b.example.org:8443/rentals.php?order=" + EXT_ID)
+        self.assertTrue(o["external"])
+        self.assertEqual(o["match"], "address")
+        self.assertEqual(o["status"], "active")
+        self.assertAlmostEqual(o["gateway_th"], 15.0)
+        self.assertEqual(o["address_workers"], ["kilo"])
+        rec = self.p._find(ref=o["ref"])
+        self.assertEqual(rec["order_id"], EXT_ID)
+        self.assertEqual(rec["address"], EXT_MASK)
+        path = os.path.join(self.dir, "pyblock.json")
+        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+        view = self.p.view()
+        dump = json.dumps(view)
+        self.assertNotIn(EXT_ID, dump)                                  # neither the id nor its tracking link
+        v = view["orders"][0]
+        self.assertTrue(v["live"])
+        self.assertEqual(calls[-1][0], ["kilo"])
+        self.assertEqual(calls[-1][1], 1100)                             # PyBLØCK's started_at
+        self.assertTrue(v["analysis"]["approx"])
+        self.assertEqual(view["totals"]["active"], 1)
+        # one notice, without the secret; paid before it got here: no "paid" notice later
+        self.assertEqual(len(self.notices), 1)
+        self.assertIn("fuera del panel", self.notices[0])
+        self.assertNotIn(EXT_ID, self.notices[0])
+        rec["checked"] = 0
+        self.p.refresh(rec, force=True)
+        self.assertEqual(len(self.notices), 1)
+        # the same order twice: refused
+        with self.assertRaises(pyblock.OrderError):
+            self.p.add_external(EXT_ID)
+        # removable while it runs (only stops following it here)
+        self.p.forget(o["ref"])
+        self.assertEqual(self.p.state["orders"], [])
+        with open(path) as f:
+            self.assertNotIn(EXT_ID, f.read())
+
+    def test_external_with_worker(self):
+        self.p.gateway_clients = lambda: [{"subscribed": True, "address": FAKE_ADDR, "worker": "rig7", "hashrate_th": 16.0}]
+        o = self.p.add_external(EXT_ID, FAKE_ADDR + ".rig7")
+        self.assertEqual(o["match"], "worker")
+        self.assertEqual(o["worker"], "rig7")
+        self.assertEqual(o["address"], FAKE_ADDR)
+        self.assertAlmostEqual(o["gateway_th"], 16.0)
+        with self.assertRaises(pyblock.OrderError):
+            self.p.add_external(EXT_ID, "bad worker!")
+
+    def test_external_without_address(self):
+        Mock.ext_mask = False
+        o = self.p.add_external(EXT_ID)
+        self.assertEqual(o["match"], "none")
+        self.assertIsNone(o["gateway_th"])
+        self.assertIsNone(self.p.view()["orders"][0]["analysis"])
+
+    def test_external_unpaid_and_refusals(self):
+        o = self.p.add_external(EXT_UNPAID)
+        self.assertTrue(o["unpaid"])
+        self.assertEqual(o["status_label"], pyblock.UNPAID_LABEL)
+        self.assertFalse(o["live"])
+        self.assertNotIn("payment", o)
+        with self.assertRaises(pyblock.OrderError) as cm:
+            self.p.add_external("ffffffff-0000-4000-8000-000000000000")     # unknown to PyBLØCK
+        self.assertIn("no conoce", str(cm.exception))
+        with self.assertRaises(pyblock.OrderError):
+            self.p.add_external("not-a-rental-0001")
+        with self.assertRaises(pyblock.OrderError):
+            self.p.add_external("x")
+        self.assertEqual(len(self.p.state["orders"]), 1)
+        self.p.forget(o["ref"])
+
     def test_gateway_test_error_text(self):
         r = self.p.gateway_test(force=True)
         self.assertFalse(r["ok"])
         self.assertIn("could not connect", r["error"])
+
+
+class AuditWorkersTests(unittest.TestCase):
+    def test_several_workers_measured_together(self):
+        import audit
+        a = audit.Audit(tempfile.mkdtemp(), {"audit": {"db": "a.db"}})
+        for ts, sh in ((1000, 0), (1010, 10), (1020, 20)):
+            a.record([{"subscribed": True, "skey": "k1", "subbed_s": ts - 990, "worker": "w1", "shares_accepted": sh, "vdiff": "1000"},
+                      {"subscribed": True, "skey": "k2", "subbed_s": ts - 990, "worker": "w2", "shares_accepted": sh * 2, "vdiff": "1000"},
+                      {"subscribed": True, "skey": "k3", "subbed_s": ts - 990, "worker": "w3", "shares_accepted": 99, "vdiff": "1000"}], 10)
+            with a.db() as c:   # record() stamps with the clock: put the rows at ts
+                c.execute("UPDATE samples SET ts=?, session_start=990 WHERE ts > 100000", (ts,))
+        one = a._work("w1", 995, 1020)
+        both = a._work(["w1", "w2"], 995, 1020)
+        self.assertEqual(one[1], 20)
+        self.assertEqual(both[1], 60)
+        self.assertEqual(both[2], 2)
 
 
 if __name__ == "__main__":

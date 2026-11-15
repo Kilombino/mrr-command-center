@@ -825,10 +825,27 @@ def extend_rental(rental_id, hours, quote_only):
     c = cfg()
     api = mrr_api(c)
     if quote_only:
-        q = api.extend_cost(rental_id, float(hours))
-        mrr_bot.save_state(api.state)
-        return {"quote": q}
+        # Estimated from the rig's current price (cached), NOT with MRR's getcost: MRR counts a
+        # getcost as an extension request and then refuses the real one right after with "Extension
+        # request too soon after the previous" (15 nov 2026).
+        data, _ = mrr_overview()
+        r = next((x for x in ((data or {}).get("rentals") or []) if str(x.get("id")) == str(rental_id)), None)
+        if not r:
+            raise ValueError(f"rental {rental_id} not found")
+        h = float(hours)
+        price = r.get("renew_sat_th_day")
+        room = (float(r["maxhours"]) - float(r["length_h"])) if r.get("maxhours") else None
+        return {"quote": {
+            "estimated": True,
+            "cost_sats": round(price * float(r["advertised_th"] or 0) * h / 24) if price else None,
+            "sat_th_day": round(price) if price else None,
+            "new_hrs": round(float(r["length_h"]) + h, 2),
+            "room_h": room, "extensions": r.get("extensions")}}
     res = api.extend(rental_id, float(hours))
+    if isinstance(res, list):        # MRR answers a list, one entry per rental
+        res = res[0] if res else {}
+    if isinstance(res, dict) and res.get("success") is False:
+        raise RuntimeError("MRR: " + str(res.get("message") or "extension refused"))
     summary = f"MANUAL EXTEND rental {rental_id} by {float(hours):.2f} h -> cost {res.get('cost')} new_hrs {res.get('new_hrs')}"
     st = api.state
     st["actions"].append({"at": mrr_bot.now_utc().strftime("%Y-%m-%d %H:%M:%S UTC"), "ok": True, "summary": summary,
@@ -1134,6 +1151,9 @@ class Handler(BaseHTTPRequestHandler):
                         if not rec:
                             return self._json({"ok": False, "error": "no existe ese pedido"}, 404)
                         return self._json({"ok": True, "order": PYB[0].public(PYB[0].refresh(rec, force=True))})
+                    if self.path == "/api/pyblock/add":
+                        o = PYB[0].add_external(str(body.get("order") or ""), str(body.get("worker") or ""))
+                        return self._json({"ok": True, "order": o})
                     if self.path == "/api/pyblock/forget":
                         PYB[0].forget(str(body.get("ref") or ""))
                         return self._json({"ok": True})
