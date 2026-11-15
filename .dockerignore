@@ -6,3 +6,6 @@ history.json
 .git
 docs
 assets
+pyblock.json
+pyblock.json.tmp
+tests

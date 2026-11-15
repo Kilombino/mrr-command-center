@@ -7,6 +7,7 @@ the MRR API (through mrr_bot.py) and controls the systemd timer.
 """
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -26,6 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import mrr_bot  # noqa: E402
 import audit as audit_mod  # noqa: E402
+import pyblock as pyb_mod  # noqa: E402
 
 WWW = os.path.join(HERE, "www")
 DATA = mrr_bot.DATA_DIR
@@ -66,6 +68,8 @@ lock = threading.Lock()
 SESSIONS = {}
 AUDIT = [None]            # audit.Audit instance when enabled
 AUDIT_PREFIX = ["mrr"]
+PYB = [None]              # pyblock.PyBlock instance when enabled
+PYB_PREFIX = ["pyb"]
 LOGIN_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MRR Command Center</title><link rel="icon" href="/favicon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600&family=JetBrains+Mono&display=swap">
@@ -123,10 +127,54 @@ def cfg():
         g = dict(g or {"url": GATEWAY["url"], "user": "admin"}, password=os.environ["MRR_GATEWAY_PASSWORD"])
     if g:
         c["gateway"] = g
+    # PyBLØCK: the public stratum of the user's DATUM and an optional payout address,
+    # set from the dashboard (config.json) or, as defaults, by the platform.
+    pyb = dict(c.get("pyblock") or {})
+    gw_env = parse_hostport(os.environ.get("MRR_PYBLOCK_GATEWAY", ""))
+    if gw_env and not (pyb.get("gateway") or {}).get("host"):
+        pyb["gateway"] = gw_env
+    if os.environ.get("MRR_PYBLOCK_ADDRESS", "").strip() and not (pyb.get("address") or "").strip():
+        pyb["address"] = os.environ["MRR_PYBLOCK_ADDRESS"].strip()
+    if pyb:
+        c["pyblock"] = pyb
     if PACKAGED:
         c["bot_ui"] = False
         c["datum_service"] = ""
     return c
+
+
+HOSTPORT_RE = re.compile(r"^\[?([A-Za-z0-9.\-:]+?)\]?:([0-9]{1,5})$")
+
+
+def parse_hostport(v):
+    """'host:port' -> {"host", "port"}, or None when empty or malformed."""
+    m = HOSTPORT_RE.match((v or "").strip())
+    if not m or not 0 < int(m.group(2)) < 65536:
+        return None
+    return {"host": m.group(1), "port": int(m.group(2))}
+
+
+def set_pyblock(gateway, address):
+    """Save PyBLØCK's gateway (host:port, "" clears it) and payout address ("" = default)."""
+    gateway, address = (gateway or "").strip(), (address or "").strip()
+    gw = parse_hostport(gateway) if gateway else {"host": "", "port": 0}
+    if gw is None:
+        raise RuntimeError("el gateway va como host:puerto (tu IP pública o dominio y el puerto stratum de tu DATUM)")
+    host = gw["host"].lower()
+    try:
+        local = not ipaddress.ip_address(host).is_global
+    except ValueError:
+        local = host == "localhost" or host.endswith((".local", ".lan", ".internal"))
+    if gw["host"] and local:
+        raise RuntimeError("PyBLØCK mina desde internet: pon tu IP pública o dominio, no una dirección local")
+    if address and not pyb_mod.ADDRESS_RE.match(address):
+        raise RuntimeError("esa dirección de cobro no parece una dirección bitcoin válida")
+    def upd(raw):
+        p = raw.setdefault("pyblock", {})
+        p["gateway"] = gw
+        p["address"] = address
+    write_raw(upd)
+    return setup_view()
 
 
 def write_raw(update):
@@ -319,6 +367,8 @@ def parse_clients(html, own_addresses):
         hr_m = re.match(r"(.*?h/s)\s*\(([\d.]+)s\)", hr, re.I)
         if not entry["label"] and re.fullmatch(re.escape(AUDIT_PREFIX[0]) + r"\d+", worker or ""):
             entry["label"] = "MRR proxy"   # worker given by the audit; the proxies' rDNS is not always set
+        if not entry["label"] and re.fullmatch(re.escape(PYB_PREFIX[0]) + r"[0-9a-f]{6}", worker or ""):
+            entry["label"] = "PyBLOCK rental"   # worker given to PyBLØCK orders made here
         entry.update({
             "subscribed": True, "user": user, "address": addr, "worker": worker,
             "own": (addr in own_addresses) if own_addresses else None,
@@ -429,7 +479,16 @@ def setup_view():
             "username": c.get("api_username") or "", "permissions": perms,
             "can_rent": str(perms.get("rent", "")).lower() == "yes",
             "profile_id": c.get("profile_id"), "packaged": PACKAGED,
-            "gateway": {"url": c["gateway"]["url"], "ok": bool(gw.get("data")), "error": gw.get("error")}}
+            "gateway": {"url": c["gateway"]["url"], "ok": bool(gw.get("data")), "error": gw.get("error")},
+            "pyblock": pyblock_setup(c)}
+
+
+def pyblock_setup(c):
+    p = pyb_mod.settings(c)
+    g = p["gateway"]
+    return {"enabled": bool(p.get("enabled", True)),
+            "gateway": f"{g['host']}:{int(g['port'] or 0)}" if g.get("host") else "",
+            "address": (p.get("address") or "").strip()}
 
 
 def link_key(key, secret):
@@ -519,7 +578,16 @@ def mrr_overview(force=False):
                 "paid": d["price"].get("paid"), "currency": d["price"].get("currency"),
                 "maxhours": d["rig"].get("maxhours"), "ended": d.get("ended"),
                 "extensions": bool(d["rig"].get("extensions")),
+                "paid_sat_th_day": paid_sat_th_day(d["price"].get("paid"), mrr_bot.to_th(d["hashrate"]["advertised"]),
+                                                   length, c.get("fee_rate")),
             })
+        try:
+            prices = rig_prices([r["rig_id"] for r in rentals], c)
+        except Exception as e:    # the renewal price is a nicety: never lose the overview over it
+            prices = {}
+            print(f"[rig prices failed: {e}]", file=sys.stderr, flush=True)
+        for r in rentals:
+            r["renew_sat_th_day"] = prices.get(str(r["rig_id"]))
         data = {"balance": {"confirmed": confirmed, "unconfirmed": unconfirmed, "currency": c["currency"]},
                 "market": {"last_10": float(stats["prices"]["last_10"]["amount"]),
                            "lowest": float(stats["prices"]["lowest"]["amount"]),
@@ -538,6 +606,54 @@ def mrr_overview(force=False):
         else:
             cache["mrr"]["error"] = err
         return cache["mrr"]["data"], cache["mrr"]["error"]
+
+
+def paid_sat_th_day(paid_btc, adv_th, length_h, fee_rate):
+    """What a rental cost in sats/TH/day: MRR's `paid` (BTC, without its fee, which it
+    charges apart as "Rental Fee") plus that fee, over the advertised TH/s and its length."""
+    try:
+        paid, th, hours = float(paid_btc), float(adv_th), float(length_h)
+    except (TypeError, ValueError):
+        return None
+    if paid <= 0 or th <= 0 or hours <= 0:
+        return None
+    return paid * 1e8 * (1 + float(fee_rate or 0)) / th / (hours / 24.0)
+
+
+def rig_price_sat_th_day(rig, currency, fee_rate):
+    """A rig's current price in sats/TH/day with MRR's fee: what extending it costs now
+    (the same as /rental/<id>/extend with getcost, which also adds the fee)."""
+    p = ((rig or {}).get("price") or {}).get(currency) or {}
+    try:
+        price = float(p.get("price") or 0)
+    except (TypeError, ValueError):
+        return None
+    unit = (rig["price"].get("type") or "th").lower()
+    if price <= 0 or unit not in mrr_bot.UNIT:
+        return None
+    return price / mrr_bot.UNIT[unit] * 1e8 * (1 + float(fee_rate or 0))
+
+
+RIG_PRICE_TTL = 600
+_rig_prices = {"at": 0, "ids": frozenset(), "data": {}}
+
+
+def rig_prices(rig_ids, c):
+    """{rig_id: sats/TH/day to extend now}, one batched MRR call (GET /rig/a;b;c), cached 10 min."""
+    ids = frozenset(str(i) for i in rig_ids if i)
+    if not ids:
+        return {}
+    if ids <= _rig_prices["ids"] and time.time() - _rig_prices["at"] < RIG_PRICE_TTL:
+        return _rig_prices["data"]
+    api = mrr_api(c)
+    try:
+        res = api.call("GET", "/rig/" + ";".join(sorted(ids)))
+    finally:
+        mrr_bot.save_state(api.state)
+    rigs = res if isinstance(res, list) else [res]
+    data = {str(r.get("id")): rig_price_sat_th_day(r, c["currency"], c.get("fee_rate")) for r in rigs}
+    _rig_prices.update(at=time.time(), ids=ids, data=data)
+    return data
 
 
 _alt = {"at": 0, "rate": None, "error": None}
@@ -723,6 +839,38 @@ def extend_rental(rental_id, hours, quote_only):
     return {"summary": summary, "result": res}
 
 
+# ----------------------------------------------------------------------------- PyBLØCK
+def mrr_ref_sats():
+    """MRR's market price (last 10 rentals) in sats/TH/day with MRR's fee: what PyBLØCK is compared with."""
+    with lock:
+        m = (cache["mrr"]["data"] or {}).get("market") or {}
+    if not m.get("last_10"):
+        return None
+    return float(m["last_10"]) * 1e8 * (1 + float(cfg().get("fee_rate") or 0))
+
+
+def profile_address():
+    """Payout address of the MRR pool profile (the user of its first pool, before the worker)."""
+    c = cfg()
+    api = mrr_api(c)
+    p = api.profile(c["profile_id"])
+    mrr_bot.save_state(api.state)
+    pools = sorted(p.get("pools") or [], key=lambda x: int(x.get("priority") or 0))
+    return (pools[0].get("user") or "").split(".", 1)[0] if pools else ""
+
+
+def pyb_analyse(worker, start, end, th):
+    """The audit's measure (shares x vdiff since the start) for a PyBLØCK order's worker."""
+    if not AUDIT[0] or not worker or not start or not th:
+        return None
+    return AUDIT[0].analyse({"start_unix": start, "end_unix": end, "advertised_th": th}, worker, None, False)
+
+
+def gateway_clients():
+    with lock:
+        return list((cache["gateway"]["data"] or {}).get("clients") or [])
+
+
 # ----------------------------------------------------------------------------- systemd
 def sysctl(*args, timeout=20):
     r = subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, timeout=timeout)
@@ -878,6 +1026,7 @@ class Handler(BaseHTTPRequestHandler):
                     "labels": {"coin": c.get("coin_label") or "BTC", "unit": c.get("unit_label") or "sats",
                                "alt": (c.get("alt_price") or {}).get("label")},
                     "alt_rate": alt_rate()[0],
+                    "pyblock": PYB[0].view() if PYB[0] else {"enabled": False},
                 })
             if url.path == "/api/setup":
                 return self._json(setup_view())
@@ -895,6 +1044,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(AUDIT[0].history() if AUDIT[0] else {"history": [], "favorites": []})
             if url.path == "/api/rig-graph":
                 return self._json(rig_graph(int(q["id"][0]), int(q.get("hours", ["24"])[0])))
+            if url.path == "/api/pyblock":
+                return self._json(PYB[0].view(force="force" in q) if PYB[0] else {"enabled": False})
+            if url.path == "/api/pyblock/gateway-test" and PYB[0]:
+                return self._json(PYB[0].gateway_test(force="force" in q))
+            if url.path == "/api/pyblock/open" and PYB[0]:
+                link = PYB[0].link(q.get("ref", [""])[0])
+                if not link:
+                    return self._json({"error": "sin enlace para ese pedido"}, 404)
+                self.send_response(302)
+                self.send_header("Location", link)
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
             if url.path == "/api/plan" and cfg().get("bot_ui"):
                 return self._json(plan_view())
             if url.path == "/api/log":
@@ -919,6 +1082,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(dict(ok=True, **link_key(body.get("key"), body.get("secret"))))
             if self.path == "/api/setup/unlink":
                 return self._json(dict(ok=True, **unlink_key()))
+            if self.path == "/api/setup/pyblock":
+                return self._json(dict(ok=True, **set_pyblock(body.get("gateway"), body.get("address"))))
             if self.path == "/api/setup/profile":
                 return self._json(dict(ok=True, **set_profile(body.get("profile_id"))))
             perms = c.get("api_permissions") or {}
@@ -926,7 +1091,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.path == "/api/extend" and not body.get("quote_only"))):
                 return self._json({"ok": False, "error": "tu clave API de MRR tiene Rent en "
                                    + perms.get("rent", "no") + ": vincula una con Rent: Yes para alquilar o extender desde aquí"}, 403)
-            if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address") or (
+            if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address",
+                                                     "/api/pyblock/order") or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
                 return self._json({"ok": False, "error": "read-only dashboard (read_only in config.json)"}, 403)
             if not c.get("bot_ui") and self.path in ("/api/bot", "/api/config"):
@@ -955,6 +1121,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(dict(ok=True, **manual_rent(body["rig"], body["hours"])))
             if self.path == "/api/extend":
                 return self._json(dict(ok=True, **extend_rental(body["rental"], body["hours"], body.get("quote_only", False))))
+            if self.path.startswith("/api/pyblock/"):
+                if not PYB[0]:
+                    return self._json({"ok": False, "error": "PyBLØCK está desactivado (pyblock.enabled)"}, 400)
+                try:
+                    if self.path == "/api/pyblock/order":
+                        o = PYB[0].create(str(body.get("package") or ""), int(body.get("qty") or 1),
+                                          str(body.get("pay") or "ln"), str(body.get("client_nonce") or ""))
+                        return self._json({"ok": True, "order": o})
+                    if self.path == "/api/pyblock/refresh":
+                        rec = PYB[0]._find(ref=str(body.get("ref") or ""))
+                        if not rec:
+                            return self._json({"ok": False, "error": "no existe ese pedido"}, 404)
+                        return self._json({"ok": True, "order": PYB[0].public(PYB[0].refresh(rec, force=True))})
+                    if self.path == "/api/pyblock/forget":
+                        PYB[0].forget(str(body.get("ref") or ""))
+                        return self._json({"ok": True})
+                except pyb_mod.OrderError as e:
+                    return self._json({"ok": False, "error": str(e), "retryable": e.retryable,
+                                       "status": e.status}, 409 if not e.retryable else 503)
+                return self._json({"error": "not found"}, 404)
             if self.path == "/api/gateway/kick":
                 status = gateway_post_cmd(cfg(), {"cmd": "kill_client", "tid": int(body["tid"]), "cid": int(body["cid"])})
                 threading.Thread(target=poll_gateway, daemon=True).start()
@@ -976,6 +1162,12 @@ def main():
         # picks the key up as soon as one is linked from the dashboard.
         threading.Thread(target=audit_mod.sync_loop, daemon=True,
                          args=(AUDIT[0], lambda: mrr_api(cfg()), lambda api: mrr_bot.save_state(api.state))).start()
+    p = pyb_mod.settings(c)
+    if p.get("enabled", True):
+        PYB_PREFIX[0] = p.get("worker_prefix") or "pyb"
+        PYB[0] = pyb_mod.PyBlock(DATA, cfg, notify=mrr_bot.telegram, gateway_clients=gateway_clients,
+                                 mrr_ref=mrr_ref_sats, address_fallback=profile_address, analyse=pyb_analyse)
+        threading.Thread(target=PYB[0].loop, daemon=True).start()
     threading.Thread(target=gateway_loop, daemon=True).start()
     port = int(c.get("dashboard_port") or raw.get("dashboard_port") or 7160)
     srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
