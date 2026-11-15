@@ -492,8 +492,9 @@ function renderRentals(mrr){
     try{
       const q = await api('/api/extend',{rental:id,hours,quote_only:true});
       const c = q.quote||{};
-      if(b.dataset.q){ toast(`Extender ${hours} h costaría ${c.cost} ${c.currency||'BTC'} (nuevo total ${c.new_hrs} h)`); return; }
-      if(!await confirmDlg(`<b>Extender renta #${id} ${hours} h</b><p>Coste: <b>${c.cost} ${c.currency||'BTC'}</b> · total tras extender: ${c.new_hrs} h</p>`)) return;
+      const cs=c.cost_sats!=null?'≈ '+Math.round(c.cost_sats)+' Spamsuits':'(MRR lo calcula al extender)';
+      if(b.dataset.q){ toast(`Extender ${hours} h costaría ${cs} (nuevo total ${c.new_hrs} h)`); return; }
+      if(!await confirmDlg(`<b>Extender renta #${id} ${hours} h</b><p>Coste: <b>${cs}</b> · total tras extender: ${c.new_hrs} h</p>`)) return;
       const r = await api('/api/extend',{rental:id,hours}); toast(r.summary); refresh(true);
     }catch(e){ toast(e.message,true); }
   });
@@ -696,7 +697,10 @@ function renderAudit(){
     const id=b.dataset.vext, hours=parseFloat($('#vext-'+id).value);
     try{
       const q = await api('/api/extend',{rental:id,hours,quote_only:true}); const c=q.quote||{};
-      if(!await confirmDlg(`<b>Extender alquiler #${id} ${hours} h</b><p>Coste: <b>${c.cost} ${esc(L().coin)}</b> (lo que cobra MRR ahora) · total tras extender: ${c.new_hrs} h</p><p class="muted">Solo se extiende si confirmas.</p>`)) return;
+      if(c.extensions===false){ toast('El dueño del rig no permite extender',true); return; }
+      if(c.room_h!=null && hours>c.room_h){ toast('Como mucho '+Math.floor(c.room_h)+' h más (máximo del rig)',true); return; }
+      const cost=c.cost_sats!=null?'≈ '+Math.round(c.cost_sats).toString().replace(/\B(?=(\d{3})+(?!\d))/g,'.')+' Spamsuits':'(MRR lo calcula al extender)';
+      if(!await confirmDlg(`<b>Extender alquiler #${id} ${hours} h</b><p>Coste: <b>${cost}</b> (precio actual del rig con la comisión de MRR; el cargo exacto lo hace MRR) · total tras extender: ${c.new_hrs} h</p><p class="muted">Solo se extiende si confirmas.</p>`)) return;
       const r = await api('/api/extend',{rental:id,hours}); toast(r.summary); refresh(true); loadAudit();
     }catch(e){ toast(e.message,true); }
   });
