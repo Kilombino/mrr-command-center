@@ -348,7 +348,16 @@ def mrr_overview(force=False):
                 "paid": d["price"].get("paid"), "currency": d["price"].get("currency"),
                 "maxhours": d["rig"].get("maxhours"), "ended": d.get("ended"),
                 "extensions": bool(d["rig"].get("extensions")),
+                "paid_sat_th_day": paid_sat_th_day(d["price"].get("paid"), mrr_bot.to_th(d["hashrate"]["advertised"]),
+                                                   length, c.get("fee_rate")),
             })
+        try:
+            prices = rig_prices([r["rig_id"] for r in rentals], c)
+        except Exception as e:    # the renewal price is a nicety: never lose the overview over it
+            prices = {}
+            print(f"[rig prices failed: {e}]", file=sys.stderr, flush=True)
+        for r in rentals:
+            r["renew_sat_th_day"] = prices.get(str(r["rig_id"]))
         data = {"balance": {"confirmed": confirmed, "unconfirmed": unconfirmed, "currency": c["currency"]},
                 "market": {"last_10": float(stats["prices"]["last_10"]["amount"]),
                            "lowest": float(stats["prices"]["lowest"]["amount"]),
@@ -367,6 +376,54 @@ def mrr_overview(force=False):
         else:
             cache["mrr"]["error"] = err
         return cache["mrr"]["data"], cache["mrr"]["error"]
+
+
+def paid_sat_th_day(paid_btc, adv_th, length_h, fee_rate):
+    """What a rental cost in sats/TH/day: MRR's `paid` (BTC, without its fee, which it
+    charges apart as "Rental Fee") plus that fee, over the advertised TH/s and its length."""
+    try:
+        paid, th, hours = float(paid_btc), float(adv_th), float(length_h)
+    except (TypeError, ValueError):
+        return None
+    if paid <= 0 or th <= 0 or hours <= 0:
+        return None
+    return paid * 1e8 * (1 + float(fee_rate or 0)) / th / (hours / 24.0)
+
+
+def rig_price_sat_th_day(rig, currency, fee_rate):
+    """A rig's current price in sats/TH/day with MRR's fee: what extending it costs now
+    (the same as /rental/<id>/extend with getcost, which also adds the fee)."""
+    p = ((rig or {}).get("price") or {}).get(currency) or {}
+    try:
+        price = float(p.get("price") or 0)
+    except (TypeError, ValueError):
+        return None
+    unit = (rig["price"].get("type") or "th").lower()
+    if price <= 0 or unit not in mrr_bot.UNIT:
+        return None
+    return price / mrr_bot.UNIT[unit] * 1e8 * (1 + float(fee_rate or 0))
+
+
+RIG_PRICE_TTL = 600
+_rig_prices = {"at": 0, "ids": frozenset(), "data": {}}
+
+
+def rig_prices(rig_ids, c):
+    """{rig_id: sats/TH/day to extend now}, one batched MRR call (GET /rig/a;b;c), cached 10 min."""
+    ids = frozenset(str(i) for i in rig_ids if i)
+    if not ids:
+        return {}
+    if ids <= _rig_prices["ids"] and time.time() - _rig_prices["at"] < RIG_PRICE_TTL:
+        return _rig_prices["data"]
+    api = mrr_api(c)
+    try:
+        res = api.call("GET", "/rig/" + ";".join(sorted(ids)))
+    finally:
+        mrr_bot.save_state(api.state)
+    rigs = res if isinstance(res, list) else [res]
+    data = {str(r.get("id")): rig_price_sat_th_day(r, c["currency"], c.get("fee_rate")) for r in rigs}
+    _rig_prices.update(at=time.time(), ids=ids, data=data)
+    return data
 
 
 _alt = {"at": 0, "rate": None, "error": None}
@@ -570,6 +627,13 @@ def profile_address():
     mrr_bot.save_state(api.state)
     pools = sorted(p.get("pools") or [], key=lambda x: int(x.get("priority") or 0))
     return (pools[0].get("user") or "").split(".", 1)[0] if pools else ""
+
+
+def pyb_analyse(worker, start, end, th):
+    """The audit's measure (shares x vdiff since the start) for a PyBLØCK order's worker."""
+    if not AUDIT[0] or not worker or not start or not th:
+        return None
+    return AUDIT[0].analyse({"start_unix": start, "end_unix": end, "advertised_th": th}, worker, None, False)
 
 
 def gateway_clients():
@@ -849,7 +913,7 @@ def main():
     if p.get("enabled", True):
         PYB_PREFIX[0] = p.get("worker_prefix") or "pyb"
         PYB[0] = pyb_mod.PyBlock(HERE, cfg, notify=mrr_bot.telegram, gateway_clients=gateway_clients,
-                                 mrr_ref=mrr_ref_sats, address_fallback=profile_address)
+                                 mrr_ref=mrr_ref_sats, address_fallback=profile_address, analyse=pyb_analyse)
         threading.Thread(target=PYB[0].loop, daemon=True).start()
     threading.Thread(target=gateway_loop, daemon=True).start()
     port = int(raw.get("dashboard_port") or 7160)

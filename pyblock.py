@@ -138,6 +138,24 @@ def compare(cat, mrr_ref):
     return cat
 
 
+def renew_price(cat, unit_th, hours, qty=1):
+    """sats/TH/day of the cheapest package on sale now with the same unit size and hours
+    (the step with the same quantity when there is one), or None."""
+    unit_th, hours = _num(unit_th), _num(hours)
+    if not cat or not unit_th or not hours:
+        return None
+    best = None
+    for p in cat.get("packages") or []:
+        if not p.get("available") or abs((p.get("unit_th") or 0) - unit_th) > 1e-6 or abs((p.get("hours") or 0) - hours) > 1e-6:
+            continue
+        steps = [s for s in p.get("steps") or [] if s.get("qty") == qty] or list(p.get("steps") or [])
+        for st in steps:
+            v = st.get("sat_th_day")
+            if v is not None and (best is None or v < best):
+                best = v
+    return best
+
+
 def _pick(d, *keys):
     for k in keys:
         if isinstance(d, dict) and d.get(k) not in (None, ""):
@@ -225,13 +243,16 @@ def http_json(method, url, body=None, timeout=25):
 
 # ----------------------------------------------------------------------------- the store
 class PyBlock:
-    def __init__(self, here, cfg_fn, notify=None, gateway_clients=None, mrr_ref=None, address_fallback=None):
+    def __init__(self, here, cfg_fn, notify=None, gateway_clients=None, mrr_ref=None, address_fallback=None,
+                 analyse=None):
         self.path = os.path.join(here, "pyblock.json")
         self.cfg_fn = cfg_fn
         self.notify = notify or (lambda c, text: None)
         self.gateway_clients = gateway_clients or (lambda: [])
         self.mrr_ref = mrr_ref or (lambda: None)
         self.address_fallback = address_fallback or (lambda: "")
+        # analyse(worker, start, end, th) -> the audit's verdict dict (shares x vdiff), or None
+        self.analyse = analyse or (lambda *a: None)
         self.lock = threading.RLock()
         self._pk = {"at": 0, "data": None, "error": None}
         self._gw = {"at": 0, "data": None}
@@ -552,7 +573,20 @@ class PyBlock:
             cat = compare(cat, self.mrr_ref())
         addr, src = self.address()
         with self.lock:
-            orders = [self.public(o) for o in sorted(self.state["orders"], key=lambda o: -(o.get("created") or 0))]
+            recs = sorted(self.state["orders"], key=lambda o: -(o.get("created") or 0))
+            orders = [self.public(o) for o in recs]
+        for rec, o in zip(recs, orders):
+            qty = int(rec.get("qty") or 1)
+            o["renew_sat_th_day"] = renew_price(cat, (rec.get("th") or 0) / qty, rec.get("hours"), qty)
+            o["analysis"] = None
+            ends, hours = rec.get("ends_at"), rec.get("hours")
+            if o["live"] and ends and hours:
+                # start = end - length (PyBLØCK gives the remaining seconds, not the start)
+                try:
+                    o["analysis"] = self.analyse(rec.get("worker"), ends - hours * 3600, ends, rec.get("th"))
+                except Exception as e:
+                    o["analysis"] = None
+                    print(f"[pyblock analyse failed: {e}]", flush=True)
         live = [o for o in orders if o["live"]]
         return {
             "enabled": bool(p.get("enabled", True)), "error": err, "catalog": cat,
@@ -561,6 +595,8 @@ class PyBlock:
             "address": addr, "address_source": src, "orders": orders,
             "totals": {"active": len(live), "th": sum(o["th"] or 0 for o in live),
                        "live_ths": sum(o["live_ths"] or 0 for o in live),
-                       "gateway_th": sum(o["gateway_th"] or 0 for o in live)},
+                       "gateway_th": sum(o["gateway_th"] or 0 for o in live),
+                       # measured since each start (shares x vdiff), like "llega al gateway" for MRR
+                       "delivered_th": sum((o["analysis"] or {}).get("delivered_th") or 0 for o in live)},
             "gateway_test": self._gw["data"],
         }

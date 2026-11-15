@@ -82,6 +82,22 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(pyblock._err_text({"ok": False, "error": "invalid payout address"}), "invalid payout address")
 
 
+class RenewTests(unittest.TestCase):
+    def test_renew_price(self):
+        cat = pyblock.parse_packages(load("pyblock_packages.json"))
+        # 1 × 16.1 TH × 48 h: the only matching package, 59738 sats / 16.1 / 2 days
+        self.assertAlmostEqual(pyblock.renew_price(cat, 16.1, 48, 1), 59738 / 16.1 / 2)
+        # same unit and hours, two units: the step with qty 2
+        self.assertAlmostEqual(pyblock.renew_price(cat, 1, 24, 2), 4705 / 2)
+        # no step with that quantity: the cheapest step of the package
+        self.assertAlmostEqual(pyblock.renew_price(cat, 16.1, 48, 3), 59738 / 16.1 / 2)
+        self.assertIsNone(pyblock.renew_price(cat, 16.1, 24, 1))      # no such package now
+        self.assertIsNone(pyblock.renew_price(None, 16.1, 48, 1))
+        for p in cat["packages"]:
+            p["available"] = False
+        self.assertIsNone(pyblock.renew_price(cat, 16.1, 48, 1))       # sold out = nothing to renew at
+
+
 class Mock(BaseHTTPRequestHandler):
     posts = []
     mode = "ok"            # ok | gateway | ratelimit | down
@@ -182,6 +198,26 @@ class FlowTests(unittest.TestCase):
         self.assertIn("pagado", self.notices[1])
         pub = self.p.public(rec)
         self.assertNotIn("payment", pub)                               # no invoice once it is over
+
+    def test_view_prices_and_analysis(self):
+        calls = []
+
+        def analyse(worker, start, end, th):
+            calls.append((worker, start, end, th))
+            return {"delivered_th": 15.5, "pct": 15.5 / th * 100, "verdict": "ok"}
+        self.p.analyse = analyse
+        o = self.p.create("p18x24", 2, "ln", "nonce-view-00000001")
+        rec = self.p._find(ref=o["ref"])
+        v = self.p.view()["orders"][0]
+        self.assertIsNone(v["analysis"])                               # not paid yet: nothing measured
+        self.assertAlmostEqual(v["sat_th_day"], 65227 / 36)
+        self.assertAlmostEqual(v["renew_sat_th_day"], 65227 / 36)      # same package, same qty
+        rec.update(status="active", ends_at=200000.0)
+        view = self.p.view()
+        v = view["orders"][0]
+        self.assertEqual(calls[-1], (rec["worker"], 200000.0 - 24 * 3600, 200000.0, 36))
+        self.assertEqual(v["analysis"]["verdict"], "ok")
+        self.assertAlmostEqual(view["totals"]["delivered_th"], 15.5)
 
     def test_gateway_refused(self):
         Mock.mode = "gateway"

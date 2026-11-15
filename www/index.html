@@ -190,6 +190,8 @@ body.nobot #hashcard{grid-column:span 12}
 .vexp{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font:500 12.5px var(--mono)}
 .vexp b{color:#fff}.vexp .got{color:var(--accent2)}
 .addr{font:500 11.5px var(--mono);color:var(--muted);word-break:break-all}
+.vprice{font:500 11.5px var(--mono);color:var(--muted);margin-top:3px}.vprice b{color:var(--text)}.vprice b.pg{color:#3cf59a}.vprice b.py{color:#ffd23f}
+.star.fixed{cursor:default}.star.fixed:hover{color:#4f5c7c}.star.fixed.on:hover{color:#ffd23f}
 .vrow{display:grid;grid-template-columns:minmax(180px,1.3fr) 3fr minmax(120px,.8fr);gap:14px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
 .vrow:first-child{border-top:0}
 .vbars{display:grid;gap:4px}
@@ -611,15 +613,33 @@ function auditLine(id){
 // it is close to what was paid (within 5 %), sad when it gets less.
 // Remaining time, short: "34 h" under two days, "5,6 d" from then on.
 function fmtLeft(h){ if(h<1) return Math.max(0,Math.round(h*60))+' min'; return h<48 ? Math.round(h)+' h' : (h/24).toFixed(1).replace('.',',')+' d'; }
-function face(x){
+function face(x, ref){
+  ref = ref || 'MRR';
   const a=x.analysis; if(!a||a.delivered_th==null||!x.advertised_th) return '<svg class="face"></svg>';
   const d=a.delivered_th, paid=x.advertised_th, m=x.mrr_average_th||0;
   const mood = (d>paid && d>=m) ? 1 : d>=paid*0.95 ? 0 : -1;
   const col = mood>0?'#3cf59a':mood===0?'#ffd23f':'#ff3b5c';
   const mouth = mood>0?'M14 29 Q23 38 32 29':mood===0?'M15 31 L31 31':'M14 34 Q23 25 32 34';
-  const tip = mood>0?'Llega más de lo pagado y de lo que dice MRR':mood===0?'Llega más o menos lo pagado':'Llega menos de lo pagado';
+  const tip = mood>0?'Llega más de lo pagado y de lo que dice '+ref:mood===0?'Llega más o menos lo pagado':'Llega menos de lo pagado';
   return `<svg class="face" viewBox="0 0 46 46"><title>${tip} (${Math.round(d/paid*100)}%)</title><circle cx="23" cy="23" r="20" fill="none" stroke="${col}" stroke-width="2.6" style="filter:drop-shadow(0 0 6px ${col})"/>
     <circle cx="16" cy="18" r="2.6" fill="${col}"/><circle cx="30" cy="18" r="2.6" fill="${col}"/><path d="${mouth}" fill="none" stroke="${col}" stroke-width="2.6" stroke-linecap="round"/></svg>`;
+}
+// "alquilado a X u/TH/día · renovar a Y": Y green when it costs the same or less, amber when more.
+function priceLine(paid, renew, tipPaid, tipRenew, why){
+  if(paid==null && renew==null && !why) return '';
+  const u=esc(L().unit), n=v=>Math.round(v).toLocaleString('de-DE');   // 1.810: grouped also with 4 digits (es-ES does not)
+  const cls = (paid!=null && renew!=null) ? (renew<=paid*1.005?'pg':'py') : '';
+  return `<div class="vprice"><span title="${esc(tipPaid)}">alquilado a <b>${paid!=null?n(paid):'–'}</b> ${u}/TH/día</span>`
+    + ` · <span style="white-space:nowrap" title="${esc(tipRenew)}">${why?'renovar: no, '+esc(why):'renovar a <b class="'+cls+'">'+(renew!=null?n(renew):'—')+'</b>'}</span></div>`;
+}
+function mrrPrice(x){
+  const r=((state&&state.mrr&&state.mrr.rentals)||[]).find(y=>String(y.id)===String(x.id)); if(!r) return '';
+  const room=(x.max_h!=null&&x.length_h!=null)?Math.floor(parseFloat(x.max_h)-x.length_h):null;
+  const fee=(state.config&&state.config.fee_rate!=null)?Math.round(state.config.fee_rate*100):3;
+  return priceLine(r.paid_sat_th_day, r.renew_sat_th_day,
+    `Lo que pagaste (${r.paid} ${L().coin} + ${fee} % de comisión de MRR) entre ${r.advertised_th} TH/s × ${r.length_h} h`,
+    `Precio actual del rig en MRR por TH/día + ${fee} % de comisión de MRR (lo mismo que cobra Extender). Se consulta cada 10 min.`,
+    r.extensions===false?'el dueño no deja':(room!=null&&room<1)?'ya en el máximo':'');
 }
 // How long until no rental is left, and when the hashrate starts to drop.
 function runway(rs){
@@ -659,6 +679,7 @@ function renderAudit(){
     const star=x.rig_id!=null?`<button class="star ${isFav?'on':''}" data-vfav="${esc(x.rig_id)}" data-name="${esc(x.rig_name||'')}" title="${isFav?'Quitar de favoritos':'Marcar como favorito'}">${isFav?'★':'☆'}</button>`:'';
     return `<div class="vrow"><div><a class="rn" href="https://www.miningrigrentals.com/rental/${esc(x.id)}" target="_blank" rel="noopener" title="Abrir el alquiler en MRR"><b>${esc(x.rig_name||'')}</b> ↗</a><div class="muted mono" style="font-size:11.5px">#${esc(x.id)}${a.worker?' · '+esc(a.worker):''}${a.worker?(a.connected?' · <span class="ok">● minando</span>':' · <span class="bad">● desconectado</span>'):''}</div>
       <div class="vexp"><span>esperado <b>${x.advertised_th.toFixed(2)} TH/s</b></span><span>recibido <b class="got">${got!=null?got.toFixed(2)+' TH/s':'–'}</b>${pct!=null?' <span class="muted">('+pct.toFixed(0)+'%)</span>':''}</span></div>
+      ${mrrPrice(x)}
       ${x.address?'<div class="addr" title="address a la que mina este alquiler">→ '+esc(x.address)+'</div>':''}
       ${a.partial?'<div class="muted" style="font-size:11.5px">medido desde '+new Date(a.observed_from*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+'</div>':''}
       ${(()=>{ const room=(x.max_h!=null&&x.length_h!=null)?Math.floor(parseFloat(x.max_h)-x.length_h):null;
@@ -742,7 +763,7 @@ function pybLive(){ return ((pyb&&pyb.orders)||[]).filter(o=>o.live); }
 function rentTitle(n){ const k=pybLive().length; return (n===1?'1 alquiler':n+' alquileres')+' MRR'+(k?' + '+k+' PyBLØCK':''); }
 function pybCotejo(mrrTh){
   const t=pyb&&pyb.totals; if(!t||!t.active) return '';
-  return `<div class="runway"><span class="tag pyb">PyBLØCK</span> ${t.active} activo${t.active>1?'s':''}: <b style="color:var(--pyb)">${t.th.toFixed(1)} TH/s</b> contratados · PyBLØCK dice ${t.live_ths.toFixed(1)} · gateway ${t.gateway_th.toFixed(1)} TH/s
+  return `<div class="runway"><span class="tag pyb">PyBLØCK</span> ${t.active} activo${t.active>1?'s':''}: <b style="color:var(--pyb)">${t.th.toFixed(1)} TH/s</b> contratados · PyBLØCK dice ${t.live_ths.toFixed(1)} · gateway ${(t.delivered_th||t.gateway_th).toFixed(1)} TH/s
     <div class="muted" style="margin-top:4px">Total alquilado: <b style="font-size:14px">${(mrrTh+t.th).toFixed(1)} TH/s</b> (MRR ${mrrTh.toFixed(1)} + PyBLØCK ${t.th.toFixed(1)})</div></div>`;
 }
 function stepOf(p, q){ return p.steps.find(s=>s.qty===q) || p.steps[0]; }
@@ -819,19 +840,29 @@ async function pybRent(p){
 function renderPybOrders(){
   const os=(pyb.orders||[]).filter(o=>!PYB_FINAL.includes(o.status) || (Date.now()/1000-(o.created||0))<86400*3);
   if(!os.length) return '';
-  const mx=Math.max(1,...os.map(o=>Math.max(o.th||0,o.live_ths||0,o.gateway_th||0)));
-  const b=(cls,lab,v)=>`<div class="vb ${cls}"><span>${lab}</span><div class="tr"><i style="width:${((v||0)/mx*100).toFixed(1)}%"></i></div><b>${v==null?'–':v.toFixed(2)}</b></div>`;
+  const gw=o=>o.analysis&&o.analysis.delivered_th!=null ? o.analysis.delivered_th : o.gateway_th;
+  const mx=Math.max(1,...os.map(o=>Math.max(o.th||0,o.live_ths||0,gw(o)||0)));
+  const b=(cls,lab,v,ex,tip)=>`<div class="vb ${cls}"${tip?' title="'+esc(tip)+'"':''}><span>${lab}</span><div class="tr"><i style="width:${((v||0)/mx*100).toFixed(1)}%"></i></div><b>${v==null?'–':v.toFixed(2)}${ex||''}</b></div>`;
   return os.map(o=>{
     const pend=o.status==='pending_payment'||o.status==='draft', fin=PYB_FINAL.includes(o.status);
     const vcls=o.live?'ok':pend?'pend':o.status==='completed'?'ok':fin?'short':'starting';
+    const a=o.analysis;
+    // the same face as MRR's: gateway (measured on our worker) vs contracted and vs what PyBLØCK says
+    const fc=o.live?face({advertised_th:o.th, mrr_average_th:o.live_ths, analysis:a&&a.delivered_th!=null?a:null}, 'PyBLØCK'):'';
+    const fav=a&&a.pct!=null&&['ok','over'].includes(a.verdict)&&a.pct>=((hist&&hist.favorite_pct)||95);
+    const star=o.live&&a?`<span class="star fixed ${fav?'on':''}" title="${fav?'Cumple: llega al menos el '+((hist&&hist.favorite_pct)||95)+' % de lo contratado':'Aún no llega el '+((hist&&hist.favorite_pct)||95)+' % de lo contratado (o no hay muestras suficientes)'}">${fav?'★':'☆'}</span>`:'';
     return `<div class="vrow pyb"><div><span class="tag pyb">PyBLØCK</span> <b>${o.qty}× ${esc(o.package)}</b>
         <div class="muted mono" style="font-size:11.5px">${esc(o.worker)} · ${new Date(o.created*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} · ${esc(PAYM[o.pay]||o.pay)}</div>
         <div class="vexp"><span>contratado <b>${(o.th||0).toFixed(2)} TH/s</b> × ${o.hours} h</span><span>${(o.total_sats||0).toLocaleString()} ${esc(L().unit)}</span></div>
+        ${priceLine(o.sat_th_day, o.renew_sat_th_day, 'Lo que pagaste ('+(o.total_sats||0).toLocaleString()+' '+L().unit+') entre '+(o.th||0)+' TH/s × '+o.hours+' h',
+          'El paquete más barato que PyBLØCK vende ahora con las mismas TH/s por unidad, horas y unidades ('+(o.renew_sat_th_day==null?'ahora no hay ninguno':'precio final, sin comisión aparte')+')')}
         <div class="addr">→ ${esc(o.address)} · ${esc(o.gateway)}</div>
         ${o.error?'<div class="warn" style="font-size:12px">'+esc(o.error)+'</div>':''}</div>
       <div class="vmid"><div class="left ${(o.left_h!=null&&o.left_h<6)?'soon':''}" title="Tiempo que le queda (según PyBLØCK)"><b>${o.left_h!=null?fmtLeft(o.left_h):'–'}</b><span>quedan</span></div>
-        <div class="vbars">${b('c','contratado',o.th)}${b('p','PyBLØCK',o.live_ths)}${b('d','gateway',o.gateway_th)}</div></div>
-      <div><span class="verd ${vcls}">${esc(o.status_label||o.status)}</span>${o.percent_done!=null&&o.live?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+o.percent_done.toFixed(1)+' % entregado</div>':''}
+        ${o.live?'<div class="vface">'+fc+star+'</div>':''}
+        <div class="vbars">${b('c','contratado',o.th)}${b('p','PyBLØCK',o.live_ths)}${b('d','gateway',gw(o), a&&a.rel_err_pct?' <span class="muted">±'+a.rel_err_pct.toFixed(0)+'%</span>':'',
+          a?'Medido en el gateway por shares del worker '+(o.worker||'')+' desde el inicio · ahora mismo '+(o.gateway_th||0).toFixed(2)+' TH/s':'Lo que marca el gateway ahora mismo')}</div></div>
+      <div><span class="verd ${vcls}">${esc(o.status_label||o.status)}</span>${a&&o.live?' <span class="verd '+a.verdict+'" title="'+esc(VHELP[a.verdict]||'')+'">'+(VTXT[a.verdict]||a.verdict)+'</span>':''}${a&&o.live&&a.z!=null&&audit&&Math.abs(a.z)>audit.sigma?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+Math.abs(a.z).toFixed(1)+' sigmas</div>':''}${o.percent_done!=null&&o.live?'<div class="muted mono" style="font-size:11px;margin-top:4px">'+o.percent_done.toFixed(1)+' % entregado</div>':''}
         <div class="row" style="margin-top:6px">${pend&&o.payment&&o.sent?`<button class="small pybbtn" data-pybpay="${esc(o.ref)}">Pagar</button>`:''}
         ${o.has_link?`<a class="small" href="/api/pyblock/open?ref=${encodeURIComponent(o.ref)}" target="_blank" rel="noopener noreferrer">ver en PyBLØCK ↗</a>`:''}
         ${(fin||!o.sent)?`<button class="small" data-pybforget="${esc(o.ref)}">Quitar</button>`:''}</div></div></div>`; }).join('');
