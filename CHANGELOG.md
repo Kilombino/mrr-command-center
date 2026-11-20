@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.1 (20 Nov 2026)
+
+- **The automatic ticket now follows MRR's policy**: it looks at a rental only after it has
+  ended, inside MRR's 12-hour window, 8.5 h after the end (MRR reviews short rentals itself
+  and refunds at the end or up to ~8.7 h later), and flags it when the final delivery is
+  below 100 % beyond statistical noise (3 sigmas of the expected shares). Rentals MRR has
+  already refunded are skipped (`was_refunded` or a Credit/Refund in
+  `/account/transactions`). The Kilobot notice carries the ticket text and the time left;
+  posting the evidence to the owner is a separate box (off).
+- The mid-rental part is now only an optional early, polite message to the owner on the
+  rental's thread (off by default), as MRR asks.
+- **Your own miners are not rentals**: `own_workers` / `own_user_agents`, an "es mío" button
+  on detected rows, and a separate "tu minero (sin alquilar)" line (a rig listed on
+  PyBLØCK market comes back to your gateway through PyBLØCK's proxy when not rented).
+- The history's "Abrir ticket" uses the same noise test, shows "reembolsado" / "avisado",
+  and the ticket dialog says when MRR has already refunded the rental.
+
 ## 1.4.0 (20 Nov 2026)
 
 - **Tickets for rentals that underdeliver.** MRR's API has no endpoint for tickets,

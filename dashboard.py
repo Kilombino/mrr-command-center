@@ -56,6 +56,11 @@ DASH_DEFAULTS = {
     "alt_price": {},
     # rentals that reach the gateway from other markets, told apart by a substring of the
     # worker, user agent, reverse DNS or stratum user (case-insensitive). Shown as "detected".
+    # your own miners, never shown as a rental even when they arrive through a market's proxy
+    # (a rig you list on PyBLØCK market comes back to your gateway when nobody rents it):
+    # "worker" or "address.worker" (exact), and user agent substrings
+    "own_workers": [],
+    "own_user_agents": [],
     "other_sources": [
         {"name": "p2phash", "match": ["p2phash"]},
         {"name": "TideHash", "match": ["tidehash"]},
@@ -349,6 +354,16 @@ def classify_source(entry, sources):
     return ""
 
 
+def is_own_miner(entry, own_workers, own_uas):
+    user, worker = str(entry.get("user") or ""), str(entry.get("worker") or "")
+    for w in own_workers or []:
+        w = str(w).strip()
+        if w and ((("." in w) and user == w) or (("." not in w) and worker == w)):
+            return True
+    ua = str(entry.get("useragent") or "").lower()
+    return any(u and str(u).lower() in ua for u in own_uas or [])
+
+
 def classify_host(name, ip):
     if "miningrigrentals" in name:
         return "MRR proxy"
@@ -359,7 +374,7 @@ def classify_host(name, ip):
     return ""
 
 
-def parse_clients(html, own_addresses, sources=None):
+def parse_clients(html, own_addresses, sources=None, own_workers=None, own_uas=None):
     rows = re.findall(r"<TR>(.*?)</TR>", html, re.S)
     clients = []
     for row in rows:
@@ -401,6 +416,10 @@ def parse_clients(html, own_addresses, sources=None):
             "coinbase": strip_tags(cells[9]) if len(cells) > 9 else "",
             "useragent": strip_tags(cells[10]) if len(cells) > 10 else "",
         })
+        if is_own_miner(entry, own_workers, own_uas):
+            entry.update(own_miner=True, own=True, label="tu minero")   # never a rental
+            clients.append(entry)
+            continue
         if not entry["label"] or entry["label"] == "LAN":
             entry["label"] = classify_source(entry, sources) or entry["label"]
         if not entry["label"] and "pyblock" in entry["useragent"].lower():
@@ -430,7 +449,8 @@ def parse_status(html):
 def poll_gateway():
     c = cfg()
     try:
-        clients = parse_clients(gateway_get(c, "/clients"), c["own_addresses"], c.get("other_sources"))
+        clients = parse_clients(gateway_get(c, "/clients"), c["own_addresses"], c.get("other_sources"),
+                                c.get("own_workers"), c.get("own_user_agents"))
         status = parse_status(gateway_get(c, "/"))
         total = sum(x.get("hashrate_th", 0) for x in clients)
         subs = [x for x in clients if x["subscribed"]]
@@ -967,15 +987,17 @@ def other_rentals():
     groups = {}
     for cl in clients:
         lab = cl.get("label") or ""
-        if not cl.get("subscribed") or not lab.endswith(" rental"):
+        if not cl.get("subscribed") or not (lab.endswith(" rental") or cl.get("own_miner")):
             continue
         w = cl.get("worker") or ""
         if (w and (w in known or mrr_re.match(w))) or re.fullmatch(re.escape(PYB_PREFIX[0]) + r"[0-9a-f]{6}", w):
             continue
-        src = "PyBLØCK market" if lab == "PyBLOCK rental" else lab[:-len(" rental")]
+        src = ("own" if cl.get("own_miner") else "PyBLØCK market" if lab == "PyBLOCK rental"
+               else lab[:-len(" rental")])
         g = groups.setdefault((src, w, cl.get("address") or ""), {
             "source": src, "worker": w, "address": mask_address(cl.get("address")), "th_now": 0.0,
-            "connections": 0, "useragents": set(), "own": cl.get("own")})
+            "connections": 0, "useragents": set(), "own": cl.get("own"), "own_miner": bool(cl.get("own_miner")),
+            "user": cl.get("user") or ""})
         g["th_now"] += cl.get("hashrate_th") or 0
         g["connections"] += 1
         if cl.get("useragent"):
@@ -997,6 +1019,12 @@ def other_rentals():
     return sorted(out, key=lambda g: -(g["th_1h"] or g["th_now"]))
 
 
+def _others_split():
+    """Detected rentals and your own miners (shown apart, never as a rental)."""
+    allg = other_rentals()
+    return {"others": [g for g in allg if not g["own_miner"]], "own_miners": [g for g in allg if g["own_miner"]]}
+
+
 def ticket_draft(rental_id):
     """The evidence text for MRR's ticket, for an active rental or one in the history."""
     rid = str(rental_id)
@@ -1010,16 +1038,36 @@ def ticket_draft(rental_id):
     h = next((x for x in (AUDIT[0].history()["history"] if AUDIT[0] else []) if str(x["rental_id"]) == rid), None)
     if not h or (h.get("source") or "mrr") != "mrr":
         raise ValueError(f"rental {rid} not found")
-    r = {"id": rid, "rig_id": h["rig_id"], "rig_name": h["rig_name"], "advertised_th": h["advertised_th"],
-         "length_h": round((h["end_unix"] - h["start_unix"]) / 3600, 2), "paid": h["paid"], "currency": h["currency"],
-         "average_th": h["mrr_average_th"], "start_unix": h["start_unix"], "end_unix": h["end_unix"],
-         "average_pct": (h["mrr_average_th"] / h["advertised_th"] * 100) if h["mrr_average_th"] and h["advertised_th"] else None}
-    a = None
-    if h["delivered_th"] is not None:
-        a = {"delivered_th": h["delivered_th"], "pct": h["pct"], "shares": h["shares"], "expected_shares": h["expected_shares"],
-             "observed_from": h["start_unix"], "z": None}
+    r, a = tickets_mod.from_history(h)
+    try:
+        api = mrr_api(cfg())
+        try:
+            was, why = tickets_mod.refunded(api, rid)
+        finally:
+            mrr_bot.save_state(api.state)
+    except Exception:
+        was, why = None, ""
     return {"active": False, "text": tickets_mod.evidence(r, a, finished=True), "url": f"{tickets_mod.MRR}/rental/{rid}",
-            "end_unix": h["end_unix"]}
+            "end_unix": h["end_unix"], "refunded": was, "refund_info": why}
+
+
+def set_own_worker(user, on=True):
+    """Add (or remove) "address.worker" to own_workers: one of your miners, never a rental."""
+    user = str(user or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9]{1,90}(\.[A-Za-z0-9_\-.]{1,64})?", user):
+        raise ValueError("worker no válido")
+    with open(mrr_bot.CONFIG_PATH) as f:
+        raw = json.load(f)
+    cur = [w for w in (raw.get("own_workers") or []) if w != user]
+    if on:
+        cur.append(user)
+    raw["own_workers"] = cur
+    tmp = mrr_bot.CONFIG_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(raw, f, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, mrr_bot.CONFIG_PATH)
+    return cur
 
 
 def ticket_loop():
@@ -1089,7 +1137,7 @@ def gateway_log(lines=40):
 
 # ----------------------------------------------------------------------------- http
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.4.0"
+    server_version = "mrr-dashboard/1.4.1"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):
@@ -1201,9 +1249,9 @@ class Handler(BaseHTTPRequestHandler):
                                "alt": (c.get("alt_price") or {}).get("label")},
                     "alt_rate": alt_rate()[0],
                     "pyblock": PYB[0].view() if PYB[0] else {"enabled": False},
-                    "others": other_rentals(),
+                    **_others_split(),
                     "autoticket": (dict(tickets_mod.switches(AUDIT[0]), settings=tickets_mod.settings(c),
-                                        log=AUDIT[0].tickets(10)) if AUDIT[0] else None),
+                                        log=AUDIT[0].tickets(100)) if AUDIT[0] else None),
                 })
             if url.path == "/api/setup":
                 return self._json(setup_view())
@@ -1276,7 +1324,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": "tu clave API de MRR tiene Rent en "
                                    + perms.get("rent", "no") + ": vincula una con Rent: Yes para alquilar o extender desde aquí"}, 403)
             if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address",
-                                                     "/api/pyblock/order", "/api/tickets/settings") or (
+                                                     "/api/pyblock/order", "/api/tickets/settings", "/api/own-workers") or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
                 return self._json({"ok": False, "error": "read-only dashboard (read_only in config.json)"}, 403)
             if not c.get("bot_ui") and self.path in ("/api/bot", "/api/config"):
@@ -1295,9 +1343,12 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/tickets/settings":
                 if not AUDIT[0]:
                     return self._json({"error": "audit is off"}, 400)
-                sw = tickets_mod.set_switches(AUDIT[0], body.get("enabled"), body.get("message_owner"))
+                sw = tickets_mod.set_switches(AUDIT[0], enabled=body.get("enabled"), message_owner=body.get("message_owner"),
+                                              warn_early=body.get("warn_early"))
                 print(f"[autoticket] switches now {sw}", file=sys.stderr, flush=True)
                 return self._json(dict(ok=True, **sw))
+            if self.path == "/api/own-workers":
+                return self._json({"ok": True, "own_workers": set_own_worker(body.get("user"), bool(body.get("on", True)))})
             if self.path == "/api/rent-address":
                 return self._json({"ok": True, "rent_address": set_rent_address(body.get("address"))})
             if self.path == "/api/bot":

@@ -1,53 +1,73 @@
-"""Auto-ticket: speak up for MRR rentals that underdeliver while they still run.
+"""Tickets for MRR rentals that underdeliver, following MRR's own refund policy.
 
 What MRR's API allows (checked against https://www.miningrigrentals.com/apidocv2 on
 20 nov 2026): there is NO endpoint to open a support ticket, a dispute or a refund
-request. Tickets are opened by hand, from the rental's page or from the ticket centre
-(/tickets), and MRR's refund policy reviews partial delivery only once the rental has
-ended (within 12 hours of the end). During a rental MRR asks renters to contact the rig
-owner first, and the API does have that: PUT /rental/<id>/message, a message on the
-rental's own thread, which the owner and MRR support read.
+request. Tickets are opened by hand, from the rental's page or the ticket centre.
+The API does have the rental's message thread (PUT /rental/<id>/message), read by the
+rig owner and MRR support, and the refund trail (the rental's `was_refunded` /
+`refunded` and /account/transactions of type credit/refund).
 
-So the automatic part does what the API allows, and only when switched on:
+MRR's policy (helpcenter/For-Renters/35): partial delivery is reviewed only once the
+rental has ENDED, and a ticket must be opened within 12 hours of the end (then the owner
+is paid). During a rental MRR asks renters to contact the owner first.
 
-  * at most once per rental, and only after enough of it has elapsed and the audit has
-    enough shares to be sure (3 sigmas below what was paid for, and below 95 %),
-  * only while the rental is active and MRR shows the rig online,
-  * it keeps the evidence (paid vs MRR vs DATUM) in audit.db,
-  * optionally posts that evidence on the rental's message thread (a second switch),
-  * and sends a Kilobot notice with the link to open the ticket on MRR in one click.
+So there are three switches, all off by default:
 
-The ticket itself stays one click away for the person: the dashboard pre-fills its text.
+  * enabled (ticket notice after the end): when an MRR rental has ended, is still inside
+    the 12-hour window and its final delivery is below 100 % beyond statistical noise
+    (shares received more than `sigma` standard deviations below what the paid hashrate
+    should have produced, and below `max_pct`), and MRR has not refunded it, the evidence
+    is kept and Kilobot sends the ticket text with the time left to claim. Once per rental.
+    It looks `after_end_h` (8.5) after the end: MRR asks to wait up to 8 hours for its own
+    review, and its automatic refunds arrive at the end or 7.5-8.7 hours later.
+  * message_owner: the same evidence is also posted on the rental's message thread.
+  * warn_early: while a rental runs and is clearly short (the old mid-rental test), the
+    owner gets one early, polite message on the rental thread, as MRR asks.
+
+Why a noise test and not a plain "< 100 %": shares arrive as a Poisson process, so a rig
+delivering exactly 100 % shows a measured figure that wanders around it by about
+1/sqrt(expected shares). Requiring the shortfall to exceed `sigma` (3) of those deviations
+means a rig that delivered in full is wrongly flagged about once in 700 rentals.
 """
+import math
 import time
 
 DEFAULTS = {
+    # after the end
+    "max_pct": 100.0,             # flag only below this % of what was paid (and beyond sigma)
+    "sigma": None,                # None = the audit's sigma (3)
+    "min_expected_shares": 200,   # enough shares for the test to mean something
+    "after_end_h": 8.5,           # MRR reviews short rentals itself and refunds within ~8 h of the end
+                                  # (measured 20 nov 2026: at the end or 7.5-8.7 h later): wait for it
+    "window_h": 12.0,             # MRR's claim window after the end
+    # early warning to the owner, while the rental runs
     "min_fraction": 0.25,         # part of the rental that must have elapsed
     "min_observed_h": 1.0,        # hours the audit must have watched the rental's own worker
-    "min_expected_shares": 200,   # shares the paid hashrate should have brought in that time
-    "max_pct": 95.0,              # only below this % of what was paid (the sad face)
+    "early_max_pct": 95.0,        # only below this % (the sad face)
 }
 MRR = "https://www.miningrigrentals.com"
 KV_KEY = "autoticket"
+SWITCHES = ("enabled", "message_owner", "warn_early")
 
 
 def settings(cfg):
     out = dict(DEFAULTS)
     out.update(((cfg.get("audit") or {}).get("tickets")) or {})
+    if out["sigma"] is None:
+        out["sigma"] = float((cfg.get("audit") or {}).get("sigma") or 3.0)
     return out
 
 
 def switches(audit):
     v = audit.kv_get(KV_KEY, {}) or {}
-    return {"enabled": bool(v.get("enabled")), "message_owner": bool(v.get("message_owner"))}
+    return {k: bool(v.get(k)) for k in SWITCHES}
 
 
-def set_switches(audit, enabled=None, message_owner=None):
+def set_switches(audit, **kw):
     cur = switches(audit)
-    if enabled is not None:
-        cur["enabled"] = bool(enabled)
-    if message_owner is not None:
-        cur["message_owner"] = bool(message_owner)
+    for k in SWITCHES:
+        if kw.get(k) is not None:
+            cur[k] = bool(kw[k])
     audit.kv_set(KV_KEY, cur)
     return cur
 
@@ -56,8 +76,39 @@ def _fmt_utc(ts):
     return time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(ts)) if ts else "?"
 
 
-def eligible(r, a, s, now):
-    """(True, "") when an active MRR rental deserves its one ticket now, else (False, why)."""
+def zscore(shares, expected):
+    """How many standard deviations the received shares fall below the expected ones."""
+    try:
+        e = float(expected)
+        return (e - float(shares)) / math.sqrt(e) if e > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------- tests
+def final_eligible(h, s, now):
+    """(True, "") when a finished MRR rental in the history deserves its ticket notice."""
+    if (h.get("source") or "mrr") != "mrr":
+        return False, "not an MRR rental"
+    end = h.get("end_unix") or 0
+    if not end or now < end + s["after_end_h"] * 3600:
+        return False, "not ended yet"
+    if now >= end + s["window_h"] * 3600:
+        return False, "MRR's 12-hour window is over"
+    if h.get("delivered_th") is None or h.get("expected_shares") is None:
+        return False, "no audit figures"
+    if float(h["expected_shares"]) < s["min_expected_shares"]:
+        return False, "too few shares to judge"
+    z = zscore(h.get("shares") or 0, h["expected_shares"])
+    if z is None or z <= s["sigma"]:
+        return False, "within statistical noise"
+    if h.get("pct") is None or float(h["pct"]) >= s["max_pct"]:
+        return False, "not below the threshold"
+    return True, ""
+
+
+def early_eligible(r, a, s, now):
+    """(True, "") when a running MRR rental is clearly short: the early warning to the owner."""
     if r.get("ended") or not (r.get("left_h") or 0) > 0:
         return False, "not active"
     if r.get("rig_online") is not True:
@@ -67,7 +118,7 @@ def eligible(r, a, s, now):
     if a.get("verdict") not in ("short", "nothing"):
         return False, "not short"
     paid = float(r.get("advertised_th") or 0)
-    if paid <= 0 or a.get("delivered_th") is None or a["delivered_th"] >= paid * s["max_pct"] / 100:
+    if paid <= 0 or a.get("delivered_th") is None or a["delivered_th"] >= paid * s["early_max_pct"] / 100:
         return False, "not below the threshold"
     start, end = r.get("start_unix") or 0, r.get("end_unix") or 0
     if end <= start or (now - start) / (end - start) < s["min_fraction"]:
@@ -75,6 +126,47 @@ def eligible(r, a, s, now):
     if (a.get("elapsed_h") or 0) < s["min_observed_h"] or (a.get("expected_shares") or 0) < s["min_expected_shares"]:
         return False, "not enough audit data yet"
     return True, ""
+
+
+eligible = early_eligible     # 1.4.0 name
+
+
+def refunded(api, rental_id):
+    """(True, why) if MRR already refunded the rental: its own flag or a credit/refund on it."""
+    try:
+        d = api.call("GET", f"/rental/{int(rental_id)}")
+        d = d[0] if isinstance(d, list) and d else d
+        if isinstance(d, dict) and (d.get("was_refunded") in (True, 1, "1", "yes", "true")
+                                    or d.get("refunded") in (True, 1, "1", "yes", "true")):
+            return True, "the rental shows as refunded"
+    except Exception:
+        pass
+    t = api.call("GET", "/account/transactions", {"rental": int(rental_id), "type": "credit/refund", "limit": 20})
+    for x in (t or {}).get("transactions") or []:
+        if str(x.get("rental") or rental_id) == str(rental_id) and "refund" in str(x.get("type") or "").lower():
+            try:
+                if float(x.get("amount") or 0) > 0:
+                    return True, f"credit/refund of {x.get('amount')}"
+            except (TypeError, ValueError):
+                continue
+    return False, ""
+
+
+# ---------------------------------------------------------------------------- texts
+def from_history(h):
+    """(rental, analysis) dicts for evidence() from a history row."""
+    r = {"id": h["rental_id"], "rig_id": h.get("rig_id"), "rig_name": h.get("rig_name"),
+         "advertised_th": h.get("advertised_th"), "paid": h.get("paid"), "currency": h.get("currency"),
+         "length_h": round(((h.get("end_unix") or 0) - (h.get("start_unix") or 0)) / 3600, 2),
+         "average_th": h.get("mrr_average_th"), "start_unix": h.get("start_unix"), "end_unix": h.get("end_unix"),
+         "average_pct": (h["mrr_average_th"] / h["advertised_th"] * 100)
+         if h.get("mrr_average_th") and h.get("advertised_th") else None}
+    a = None
+    if h.get("delivered_th") is not None:
+        a = {"delivered_th": h["delivered_th"], "pct": h.get("pct"), "shares": h.get("shares"),
+             "expected_shares": h.get("expected_shares"), "observed_from": h.get("start_unix"),
+             "z": zscore(h.get("shares") or 0, h.get("expected_shares"))}
+    return r, a
 
 
 def evidence(r, a, now=None, finished=False):
@@ -108,59 +200,113 @@ def evidence(r, a, now=None, finished=False):
     return "\n".join(lines)
 
 
-def notice(r, a, message_sent, error=None):
-    """Spanish Kilobot notice, like the other rent alerts."""
+def _left(end, s, now):
+    h = max(0.0, (end + s["window_h"] * 3600 - now) / 3600)
+    return f"{int(h)} h {int((h % 1) * 60):02d} min"
+
+
+def notice_final(h, text, s, now, message_sent, error=None):
+    """Spanish Kilobot notice after the end, with the ticket text and the time left to claim."""
+    rid = h["rental_id"]
+    mrr = (f" · MRR dice {float(h['mrr_average_th']):.2f}" if h.get("mrr_average_th") is not None else "")
+    z = zscore(h.get("shares") or 0, h.get("expected_shares"))
+    msg = ("\nPruebas publicadas también en el hilo del alquiler (dueño y soporte)." if message_sent else
+           ("\nNo se pudo escribir en el hilo del alquiler: " + str(error)[:120]) if error else "")
+    return (f"🎫 MRR: el alquiler #{rid} \"{h.get('rig_name') or ''}\" terminó entregando menos de lo pagado\n"
+            f"pagado {float(h.get('advertised_th') or 0):.2f} TH/s{mrr} · llegó al DATUM {float(h['delivered_th']):.2f} TH/s"
+            f" ({float(h.get('pct') or 0):.1f} %) · {int(h.get('shares') or 0):,} de {round(h.get('expected_shares') or 0):,}"
+            f" shares esperadas ({(z or 0):.1f} σ por debajo)\n"
+            f"⏳ Te quedan {_left(h['end_unix'], s, now)} para abrir el ticket (MRR da 12 h tras terminar). MRR no lo ha reembolsado."
+            f"{msg}\nÁbrelo aquí: {MRR}/rental/{rid}\nTexto para pegar:\n\n{text}")
+
+
+def notice_early(r, a, message_sent, error=None):
     rid = r.get("id")
-    mrr_part = (f" · MRR dice {float(r['average_th']):.2f}" + (f" ({float(r['average_pct']):.0f} %)" if r.get("average_pct") not in (None, "") else "")
-                if r.get("average_th") is not None else "")
-    msg = ("mensaje con las pruebas enviado al dueño por la API" if message_sent else
-           ("no se pudo escribir al dueño: " + str(error)[:120]) if error else "sin mensaje al dueño (solo aviso)")
-    return (f"🎫 MRR dashboard: el alquiler #{rid} \"{r.get('rig_name') or ''}\" entrega poco\n"
-            f"pagado {float(r.get('advertised_th') or 0):.2f} TH/s{mrr_part} · llega al DATUM {a['delivered_th']:.2f} TH/s"
-            f" ({(a.get('pct') or 0):.0f} %) · {int(a.get('shares') or 0):,} de {round(a.get('expected_shares') or 0):,} shares esperadas\n"
-            f"{msg}.\nAbrir el ticket en MRR (el texto está en el panel, botón «Abrir ticket»): {MRR}/rental/{rid}\n"
-            "MRR revisa los reembolsos al terminar el alquiler: reclama en las 12 h siguientes.")
+    what = ("mensaje enviado al dueño en el hilo del alquiler" if message_sent else
+            "no se pudo escribir al dueño: " + str(error or "")[:120])
+    return (f"📨 MRR: el alquiler #{rid} \"{r.get('rig_name') or ''}\" va corto "
+            f"({a['delivered_th']:.2f} de {float(r.get('advertised_th') or 0):.2f} TH/s, {(a.get('pct') or 0):.0f} %): {what}.\n"
+            f"Si al terminar sigue por debajo, el panel te avisará con el texto del ticket. {MRR}/rental/{rid}")
 
 
+def early_text(r, a, now):
+    return ("Hello, a heads-up from the renter: " + evidence(r, a, now).split(": ", 1)[1].replace(
+        "Please check the rig. If it cannot deliver the advertised hashrate, I ask for the missing work to be made up"
+        " or refunded when the rental ends.",
+        "Could you please check the rig? Thank you."))
+
+
+def _post(api_factory, rid, text):
+    try:
+        res = api_factory().call("PUT", f"/rental/{int(rid)}/message", body={"message": text})
+        item = res[0] if isinstance(res, list) and res else res
+        if isinstance(item, dict) and item.get("success") is False:
+            return False, "MRR refused the message"
+        return True, None
+    except Exception as e:
+        return False, str(e)[:300]
+
+
+# ---------------------------------------------------------------------------- the pass
 def check(audit, rentals, api_factory, notify, cfg, log=print, now=None):
-    """One pass over the active MRR rentals. Returns the rentals acted on.
+    """One pass. Returns the keys acted on ("<id>" after the end, "<id>:early" mid-rental).
 
-    `rentals` are the dashboard's MRR rentals (with rig_online), `api_factory()` returns an MRR
-    client (only used to post the optional message), `notify(cfg, text)` sends the Kilobot notice."""
+    `rentals` are the dashboard's active MRR rentals (with rig_online), `api_factory()` an MRR
+    client, `notify(cfg, text)` the Kilobot notice. Nothing at all while the switches are off
+    or the dashboard is read-only."""
     sw = switches(audit)
-    if not sw["enabled"] or cfg.get("read_only"):
+    if cfg.get("read_only") or not (sw["enabled"] or sw["warn_early"]):
         return []
     s = settings(cfg)
     now = now or time.time()
-    view = audit.view(rentals)
-    by_id = {str(x["id"]): x for x in view["rentals"]}
     done = []
-    for r in rentals:
-        a = (by_id.get(str(r.get("id"))) or {}).get("analysis")
-        ok, _ = eligible(r, a, s, now)
-        if not ok:
-            continue
-        text = evidence(r, a, now)
-        if not audit.ticket_claim(r["id"], now, a.get("verdict"), a.get("pct"),
-                                  float(r["average_pct"]) if r.get("average_pct") not in (None, "") else None, text):
-            continue    # this rental already had its one ticket
-        sent, err = False, None
-        if sw["message_owner"]:
+    if sw["enabled"]:
+        for h in audit.history()["history"]:
+            ok, _ = final_eligible(h, s, now)
+            if not ok or audit.ticket_seen(h["rental_id"]):
+                continue
             try:
-                api = api_factory()
-                res = api.call("PUT", f"/rental/{int(r['id'])}/message", body={"message": text})
-                item = res[0] if isinstance(res, list) and res else res
-                sent = not (isinstance(item, dict) and item.get("success") is False)
-                if not sent:
-                    err = "MRR refused the message"
-            except Exception as e:    # the notice still goes out
-                err = str(e)[:300]
-        audit.ticket_update(r["id"], sent if sw["message_owner"] else None, err)
-        log(f"[autoticket] rental {r['id']} {a.get('verdict')} {a.get('pct') or 0:.0f}% of paid"
-            f" (MRR {r.get('average_pct')}%), owner message: {'sent' if sent else err or 'off'}")
-        try:
-            notify(cfg, notice(r, a, sent, err))
-        except Exception:
-            pass
-        done.append(str(r["id"]))
+                was, why = refunded(api_factory(), h["rental_id"])
+            except Exception as e:      # cannot tell: try again on the next pass
+                log(f"[autoticket] rental {h['rental_id']}: refund check failed: {e}")
+                continue
+            r, a = from_history(h)
+            text = evidence(r, a, now, finished=True)
+            if was:
+                audit.ticket_claim(h["rental_id"], now, "refunded", h.get("pct"), None, text)
+                audit.ticket_update(h["rental_id"], None, "already refunded by MRR: " + why)
+                log(f"[autoticket] rental {h['rental_id']}: {why}, no notice")
+                continue
+            if not audit.ticket_claim(h["rental_id"], now, h.get("verdict"), h.get("pct"),
+                                      r.get("average_pct"), text):
+                continue
+            sent, err = (_post(api_factory, h["rental_id"], text) if sw["message_owner"] else (None, None))
+            audit.ticket_update(h["rental_id"], sent, err)
+            log(f"[autoticket] rental {h['rental_id']} ended at {h.get('pct') or 0:.1f}% of paid: notice sent,"
+                f" owner message: {'sent' if sent else err or 'off'}")
+            try:
+                notify(cfg, notice_final(h, text, s, now, sent, err))
+            except Exception:
+                pass
+            done.append(str(h["rental_id"]))
+    if sw["warn_early"] and rentals:
+        view = audit.view(rentals)
+        by_id = {str(x["id"]): x for x in view["rentals"]}
+        for r in rentals:
+            a = (by_id.get(str(r.get("id"))) or {}).get("analysis")
+            ok, _ = early_eligible(r, a, s, now)
+            key = f"{r.get('id')}:early"
+            if not ok or not audit.ticket_claim(key, now, a.get("verdict"), a.get("pct"),
+                                                float(r["average_pct"]) if r.get("average_pct") not in (None, "") else None,
+                                                early_text(r, a, now)):
+                continue
+            sent, err = _post(api_factory, r["id"], early_text(r, a, now))
+            audit.ticket_update(key, sent, err)
+            log(f"[autoticket] rental {r['id']} short mid-rental ({a.get('pct') or 0:.0f}%): early owner message"
+                f" {'sent' if sent else err}")
+            try:
+                notify(cfg, notice_early(r, a, sent, err))
+            except Exception:
+                pass
+            done.append(key)
     return done
