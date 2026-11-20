@@ -21,8 +21,13 @@ every rental against what the gateway really receives.
   apart, mining to a payout address you fix.
 - **Manual renting** from the market, with each rig's last 24 h of hashrate, its region,
   prices per TH and day and per hour, and a confirmation before anything is spent.
-- **History and favourites**: finished rentals are kept for 7 days with their final
-  verdict, and rigs that delivered are starred automatically.
+- **History and favourites**: finished rentals (MRR and PyBLØCK) are kept for 7 days with
+  their final verdict, can be deleted by hand, and rigs that delivered are starred
+  automatically.
+- **Tickets**: a rental that underdelivers gets an "Abrir ticket" button with the evidence
+  (paid vs MRR vs gateway) ready to paste, and an optional automatic notice.
+- **Other markets**: PyBLØCK packages and orders, and hashrate from PyBLØCK market,
+  p2phash, TideHash or RouteHash detected on the gateway.
 - **Gateway**: every ASIC connected to your DATUM gateway (address, worker, hashrate,
   shares, kick button) and the gateway's log.
 
@@ -35,7 +40,7 @@ addresses, IPs, rental numbers and balances masked.
 
 ![Market](docs/img/market.jpg)
 
-<p align="center"><img src="docs/img/login.jpg" width="520" alt="Login"></p>
+<p align="center"><img src="docs/img/ticket.jpg" width="540" alt="Ticket text"> <img src="docs/img/login.jpg" width="420" alt="Login"></p>
 
 ## How it works
 
@@ -149,6 +154,45 @@ PyBLØCK reports, what the gateway sees for its worker, time left, state), in th
 TH/s totals and in `/api/overview` under `pyblock`. Created / paid / ended notices go to
 the same Telegram chat, without the order id or the invoice.
 
+### Tickets for rentals that underdeliver
+
+MRR's API v2 has **no endpoint to open a support ticket, a dispute or a refund request**
+(checked against [the API docs](https://www.miningrigrentals.com/apidocv2) on 20 Nov 2026).
+Tickets are opened on MRR's site, from the rental's page or the ticket centre, and MRR's
+[refund policy](https://www.miningrigrentals.com/helpcenter/For-Renters/35) reviews partial
+delivery once the rental has ended, within 12 hours of the end; during a rental it asks
+renters to contact the rig owner first. What the API does have is the rental's message
+thread (`PUT /rental/<id>/message`), which the owner and MRR support read.
+
+So the dashboard does this:
+
+- **"Abrir ticket"** on every active rental with the sad face (below 95 % of what was paid,
+  3 sigmas short) and on finished ones while MRR's 12-hour window is open (the button
+  counts it down). It shows the evidence in English (advertised TH/s, what MRR reports,
+  what the gateway accepted from the rental's own worker, shares against expected,
+  window), copies it and opens the rental on MRR, where its ticket button is.
+- **"ticket automático"** (off by default, a switch above the rentals): every 2 minutes,
+  an active MRR rental whose rig MRR shows online, past `audit.tickets.min_fraction` of its
+  length, watched for at least `min_observed_h` with `min_expected_shares`, that is short
+  below `max_pct` gets **one** notice for its whole life: the evidence is stored in
+  `audit.db` (table `tickets`), a Telegram notice with the link goes to the same chat as
+  the rent alerts, and, only if the second box "escribir también al dueño" is ticked, the
+  evidence is posted on the rental's message thread. Nothing happens in `read_only`.
+
+### Rentals from other markets
+
+Hashrate that reaches the gateway from a rental market without an order in the panel is
+listed in the rentals card as **detected** (orange or purple badge): source, worker, masked
+address, user agent, TH/s now and over the last hour by shares, and since when it is seen.
+It has no contract, so no face or verdict. Sources:
+
+- **PyBLØCK market**: connections from PyBLØCK's proxy (user agent `pyblock-market/…` or its
+  reverse DNS) that are not one of the PyBLØCK orders here.
+- `other_sources` in `config.json`: a name and substrings matched against the worker, user
+  agent, reverse DNS and stratum user. Defaults: `p2phash`, `tidehash`, `routehash`.
+
+Paid PyBLØCK orders that end now go to the history too, judged on their worker.
+
 ### History and favourites
 
 When a rental stops being active, the audit judges it over its whole length (as far as
@@ -156,7 +200,9 @@ When a rental stops being active, the audit judges it over its whole length (as 
 `history_days` (7): rig, end, length, paid / MRR / received TH/s, verdict and cost. A
 rental that ends with an `ok` or `over` verdict at `favorite_pct` (95 %) or more of what
 was paid stars its rig. Stars can also be set by hand in the market, which can be
-filtered to show only them.
+filtered to show only them. Each entry has a 🗑 button to delete it now (with a
+confirmation) instead of waiting for `history_days`. A rental that MRR's list leaves out
+once (a glitch or its 100 calls/min limit) is no longer taken for finished while it runs.
 
 ### Smaller changes
 
@@ -238,6 +284,11 @@ Keys marked *market* decide which rigs the market card lists (and the upstream b
 | `audit.series_hours` / `audit.series_bucket_s` | 6 / 600 | per-rental chart span and bucket |
 | `audit.history_days` | 7 | how long finished rentals stay in the history |
 | `audit.favorite_pct` | 95 | % of the paid hashrate a finished rental needs to star its rig |
+| `audit.tickets.min_fraction` | 0.25 | part of a rental that must have elapsed before the automatic notice |
+| `audit.tickets.min_observed_h` | 1 | hours the audit must have watched the rental's worker |
+| `audit.tickets.min_expected_shares` | 200 | shares the paid hashrate should have brought in that time |
+| `audit.tickets.max_pct` | 95 | only below this % of what was paid |
+| `other_sources` | p2phash, TideHash, RouteHash | `[{"name": …, "match": [substrings]}]` for detected rentals |
 
 ## Upstream bot (optional)
 
@@ -253,6 +304,7 @@ how it decides.
 ```
 dashboard.py      MRR Command Center server
 pyblock.py        PyBLØCK Market: packages, manual orders, order status
+tickets.py        evidence text for MRR tickets and the automatic notice
 tests/            unit tests (python3 -m unittest discover -s tests)
 audit.py          rental audit: gateway samples, verdicts, per-rental worker, history, favourites
 mrr_bot.py        MRR API client (and the upstream bot, off by default)
@@ -264,7 +316,7 @@ launcher/         Chromium app-mode launcher + .desktop template
 config.json       your secrets and knobs (gitignored)
 state.json        API nonce + action log (gitignored)
 history.json      gateway hashrate history (gitignored)
-audit.db          gateway samples, rental history, favourites (gitignored)
+audit.db          gateway samples, rental history, favourites, ticket log (gitignored)
 pyblock.json      PyBLØCK orders with their secret ids (600, gitignored)
 ```
 
