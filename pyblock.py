@@ -287,7 +287,7 @@ def http_json(method, url, body=None, timeout=25):
 # ----------------------------------------------------------------------------- the store
 class PyBlock:
     def __init__(self, here, cfg_fn, notify=None, gateway_clients=None, mrr_ref=None, address_fallback=None,
-                 analyse=None):
+                 analyse=None, on_finish=None):
         self.path = os.path.join(here, "pyblock.json")
         self.cfg_fn = cfg_fn
         self.notify = notify or (lambda c, text: None)
@@ -296,6 +296,8 @@ class PyBlock:
         self.address_fallback = address_fallback or (lambda: "")
         # analyse(worker, start, end, th) -> the audit's verdict dict (shares x vdiff), or None
         self.analyse = analyse or (lambda *a: None)
+        # on_finish(rec): a paid order ended (the dashboard keeps it in the history)
+        self.on_finish = on_finish or (lambda rec: None)
         self.lock = threading.RLock()
         self._pk = {"at": 0, "data": None, "error": None}
         self._gw = {"at": 0, "data": None}
@@ -605,6 +607,11 @@ class PyBlock:
                 self._notice(rec, "paid")
             if after in FINAL and not rec["notified"].get("ended"):
                 self._notice(rec, "ended")
+                if not is_unpaid(rec):
+                    try:
+                        self.on_finish(rec)
+                    except Exception as e:
+                        print(f"[pyblock history failed: {e}]", flush=True)
         return rec
 
     def poll_all(self):
@@ -739,6 +746,13 @@ class PyBlock:
             who = rec.get("worker")
             if o["match"] == "address":
                 who = o.get("address_workers") or None
+                if who:   # remembered: at the end the connections may already be gone
+                    seen = sorted(set(rec.get("seen_workers") or []) | set(who))
+                    if seen != rec.get("seen_workers"):
+                        with self.lock:
+                            rec["seen_workers"] = seen
+                            self._save()
+                    who = seen
             if o["live"] and ends and hours and who:
                 # start: PyBLØCK's started_at when it gives it, else end - length
                 start = rec.get("started_at") or (ends - hours * 3600)
