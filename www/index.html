@@ -304,13 +304,15 @@ body.nobot #hashcard{grid-column:span 12}
   <section class="card span12 audit-only"><i class="corner tr"></i><i class="corner bl"></i>
     <h2><span id="v-title">Alquileres</span> <span class="right">pagado · lo que dice MRR · lo que llega al gateway</span></h2>
     <div class="atbar ro-hide" id="at-bar">
-      <label class="switch" id="sw-at" title="Ticket automático para los alquileres de MRR con carita triste a medio alquiler"><i></i><span id="at-label">ticket automático: apagado</span></label>
-      <label class="sub" title="Además, publicar las pruebas en el hilo de mensajes del alquiler (lo leen el dueño del rig y el soporte de MRR)"><input type="checkbox" id="at-msg"> escribir también al dueño (mensaje del alquiler)</label>
-      <span class="muted" id="at-rules"></span>
+      <label class="switch" id="sw-at"><i></i><span id="at-label">ticket automático al terminar: apagado</span></label>
+      <label class="sub" title="Al terminar, publicar también las pruebas en el hilo de mensajes del alquiler (lo leen el dueño del rig y el soporte de MRR)"><input type="checkbox" id="at-msg"> publicar las pruebas al dueño</label>
+      <label class="sub" title="MRR pide avisar antes al dueño: un mensaje amable en el hilo del alquiler cuando a medio alquiler va claramente corto (una vez por alquiler)"><input type="checkbox" id="at-early"> avisar antes al dueño a medio alquiler</label>
+      <span class="muted" id="at-rules" style="cursor:help;border-bottom:1px dotted var(--line2)"></span>
       <div class="atlog" id="at-log"></div>
     </div>
     <div id="pyb-orders"></div>
     <div id="other-rentals"></div>
+    <div id="own-miners" class="muted" style="font-size:12.5px;margin:4px 0 8px"></div>
     <div id="verdicts" class="muted">consultando…</div>
   </section>
 
@@ -477,6 +479,7 @@ function render(d){
   renderRentals(mrr);
   renderPyb(d.pyblock);
   renderOthers(d.others||[]);
+  renderOwnMiners(d.own_miners||[]);
   renderAutoTicket(d.autoticket);
   drawChart(d.history||[]);
   if(!render.labelled){ render.labelled=1; if(typeof hist!=='undefined' && hist) loadHistory(); }   // the history may have been drawn before the labels (coin name) arrived
@@ -788,7 +791,11 @@ async function loadHistory(){
     : '<span class="muted">Aún no hay favoritos: un rig entra solo cuando un alquiler suyo termina cumpliendo, o marcándolo con ☆ en el mercado.</span>';
   const fmtD=s=>new Date(s*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
   $('#t-hist tbody').innerHTML = H.length ? H.map(h=>{ const isP=h.source==='pyblock';
-    const sad=h.delivered_th!=null && h.advertised_th && h.delivered_th<h.advertised_th*0.95;
+    const ts=(state&&state.autoticket&&state.autoticket.settings)||{}, sg=ts.sigma||3;
+    const z=(h.expected_shares>0)?(h.expected_shares-(h.shares||0))/Math.sqrt(h.expected_shares):null;
+    const sad=h.delivered_th!=null && h.pct!=null && h.pct<(ts.max_pct||100) && z!=null && z>sg;   // the same test as the automatic notice
+    const tk=((state&&state.autoticket&&state.autoticket.log)||[]).find(y=>String(y.rental_id)===String(h.rental_id));
+    const tkb=tk?(tk.verdict==='refunded'?' <span class="verd ok" title="'+esc(tk.error||'')+'">reembolsado</span>':' <span class="muted" style="font-size:11px">🎫 avisado</span>'):'';
     const left=h.end_unix ? (h.end_unix+12*3600-Date.now()/1000)/3600 : -1;
     return `<tr>
     <td>${face({advertised_th:h.advertised_th,mrr_average_th:h.mrr_average_th,analysis:h.delivered_th!=null?{delivered_th:h.delivered_th}:null}, isP?'PyBLØCK':'MRR').replace('class="face"','class="face" style="width:30px;height:30px"')}</td>
@@ -797,7 +804,7 @@ async function loadHistory(){
     <td>${fmtD(h.end_unix)}</td><td>${fmtH((h.end_unix-h.start_unix)/3600)}</td>
     <td>${(h.advertised_th||0).toFixed(2)} TH/s</td><td>${h.mrr_average_th!=null?h.mrr_average_th.toFixed(2)+' TH/s':'–'}</td>
     <td><b style="color:var(--accent2)">${h.delivered_th!=null?h.delivered_th.toFixed(2)+' TH/s':'–'}</b>${h.pct!=null?' <span class="muted">('+Math.round(h.pct)+'%)</span>':''}</td>
-    <td><span class="verd ${esc(h.verdict)}">${VTXT[h.verdict]||esc(h.verdict)}</span>${!isP&&sad&&left>0?` <button class="small tkbtn" data-ticket="${esc(h.rental_id)}" title="MRR revisa reembolsos hasta 12 h después de terminar: quedan ${fmtLeft(left)}">Abrir ticket · ${fmtLeft(left)}</button>`:''}</td>
+    <td><span class="verd ${esc(h.verdict)}">${VTXT[h.verdict]||esc(h.verdict)}</span>${!isP&&sad&&left>0?` <button class="small tkbtn" data-ticket="${esc(h.rental_id)}" title="Llegó ${z!=null?z.toFixed(1):'?'} σ por debajo de lo pagado. MRR revisa reembolsos hasta 12 h después de terminar: quedan ${fmtLeft(left)}">Abrir ticket · ${fmtLeft(left)}</button>`:''}${tkb}</td>
     <td class="mono">${isP?(Number(h.paid)||0).toLocaleString()+' '+esc(L().unit):esc(h.paid)+' '+esc(h.currency==='BTC'?C:(h.currency||''))}</td>
     <td><button class="delbtn" data-hdel="${esc(h.rental_id)}" data-name="${esc(h.rig_name||h.rental_id)}" title="Borrar del historial ya (si no, se borra solo a los ${hist.history_days||7} días)">🗑</button></td></tr>`; }).join('')
     : `<tr><td colspan="10" class="muted">Ningún alquiler ha terminado desde que se guarda el historial.</td></tr>`;
@@ -816,8 +823,8 @@ loadAudit(); setInterval(loadAudit, 60000); setInterval(loadHistory, 300000);
 // can post it on the rental's message thread (the API allows that) and sends a Kilobot notice.
 function isSad(x){ const a=x.analysis; return !!(a && a.delivered_th!=null && x.advertised_th && a.delivered_th<x.advertised_th*0.95 && ['short','nothing'].includes(a.verdict)); }
 function ticketInfo(x){
-  const t=((state&&state.autoticket&&state.autoticket.log)||[]).find(y=>String(y.rental_id)===String(x.id));
-  const done=t?`<div class="muted" style="font-size:11px;margin-top:4px" title="${esc(t.error||'')}">🎫 aviso ${new Date(t.at*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}${t.message_sent?' · dueño avisado':t.error?' · <span class="bad">mensaje falló</span>':''}</div>`:'';
+  const t=((state&&state.autoticket&&state.autoticket.log)||[]).find(y=>String(y.rental_id)===String(x.id)+':early');
+  const done=t?`<div class="muted" style="font-size:11px;margin-top:4px" title="${esc(t.error||'')}">📨 ${t.message_sent?'dueño avisado':'<span class="bad">aviso al dueño falló</span>'} ${new Date(t.at*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>`:'';
   return (isSad(x)?`<div style="margin-top:6px"><button class="small tkbtn" data-ticket="${esc(x.id)}" title="Prepara el texto con las pruebas y abre el alquiler en MRR">Abrir ticket</button></div>`:'')+done;
 }
 let tkCur=null;
@@ -827,7 +834,7 @@ async function openTicket(id){
     const left=d.end_unix?(d.end_unix+12*3600-Date.now()/1000)/3600:null;
     $('#tk-head').innerHTML = `<b>Ticket para el alquiler #${esc(id)}</b>
       <p class="muted" style="font-size:12.5px;margin:6px 0 8px">MRR no deja abrir tickets por su API: copia este texto y pégalo en el ticket del alquiler (botón de ticket en su página de MRR).
-      ${d.active?'El alquiler sigue en marcha: MRR pide avisar antes al dueño y <b>solo revisa reembolsos cuando termina</b> (hasta 12 h después).':'Plazo de MRR para reclamar: '+(left>0?'<b>quedan '+fmtLeft(left)+'</b>':'<span class="bad">pasado</span>')+' (12 h tras terminar).'}</p>`;
+      ${d.refunded?'<b class="ok">MRR ya lo ha reembolsado ('+esc(d.refund_info||'')+'): no hace falta ticket.</b> ':''}${d.active?'El alquiler sigue en marcha: MRR pide avisar antes al dueño y <b>solo revisa reembolsos cuando termina</b> (hasta 12 h después).':'Plazo de MRR para reclamar: '+(left>0?'<b>quedan '+fmtLeft(left)+'</b>':'<span class="bad">pasado</span>')+' (12 h tras terminar).'}</p>`;
     $('#tk-text').value=d.text; $('#tk-dlg').showModal();
   }catch(e){ toast(e.message,true); }
 }
@@ -838,19 +845,23 @@ $('#tk-go').onclick=async()=>{ if(!tkCur) return;
   window.open(tkCur.url,'_blank','noopener'); };
 function renderAutoTicket(t){
   const bar=$('#at-bar'); if(!t){ bar.style.display='none'; return; } bar.style.display='';
-  $('#sw-at').className='switch'+(t.enabled?' on':''); $('#at-label').textContent='ticket automático: '+(t.enabled?'encendido':'apagado');
-  $('#at-msg').checked=!!t.message_owner; $('#at-msg').disabled=!t.enabled;
-  const s=t.settings||{};
-  $('#at-rules').textContent=`solo con carita triste (< ${s.max_pct||95} % de lo pagado, 3 sigmas), pasado el ${Math.round((s.min_fraction||.25)*100)} % del alquiler, rig en línea, una vez por alquiler`;
-  const lg=t.log||[];
-  $('#at-log').innerHTML = lg.length ? 'Últimos avisos: '+lg.slice(0,5).map(x=>`#${esc(x.rental_id)} ${new Date(x.at*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} (${Math.round(x.pct||0)} %${x.message_sent?', dueño avisado':x.error?', mensaje falló':''})`).join(' · ') : '';
+  $('#sw-at').className='switch'+(t.enabled?' on':''); $('#at-label').textContent='ticket automático al terminar: '+(t.enabled?'encendido':'apagado');
+  $('#at-msg').checked=!!t.message_owner; $('#at-msg').disabled=!t.enabled; $('#at-early').checked=!!t.warn_early;
+  const s=t.settings||{}, sg=s.sigma||3;
+  $('#at-rules').textContent=`al terminar, si llegó < ${s.max_pct||100} % más allá del ruido (${sg} σ) y MRR no lo ha reembolsado · plazo ${s.window_h||12} h · una vez por alquiler`;
+  $('#at-rules').title=`Cómo se decide: las shares llegan al azar (proceso de Poisson), así que un rig que entrega justo el 100 % se mide unas veces por encima y otras por debajo, más o menos 1/√(shares esperadas): con 10.000 shares esperadas, ±1 %. Por eso no basta con «menos del 100 %»: se avisa solo si faltan más de ${sg} desviaciones (shares esperadas − recibidas > ${sg}·√esperadas), algo que a un rig que cumplió le pasa ~1 de cada 700 veces, y además por debajo del ${s.max_pct||100} %. Se mira tras terminar (MRR solo revisa entregas parciales cuando el alquiler acaba y da 12 h para reclamar), ${s.after_end_h!=null?s.after_end_h:8.5} h después del final: MRR revisa sola los alquileres cortos y reembolsa al acabar o hasta ~8 h después (pide esperar su revisión antes de abrir ticket). Se salta si MRR ya lo reembolsó (marca del alquiler o un Credit/Refund en tus movimientos). El botón «Abrir ticket» del historial está disponible desde el primer momento.`;
+  const lg=(t.log||[]).filter(x=>!String(x.rental_id).endsWith(':early')&&x.verdict!=='refunded');
+  $('#at-log').innerHTML = lg.length ? 'Últimos avisos: '+lg.slice(0,5).map(x=>`#${esc(x.rental_id)} ${new Date(x.at*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} (${(x.pct||0).toFixed(1)} %${x.message_sent?', pruebas al dueño':x.error?', mensaje falló':''})`).join(' · ') : '';
 }
 $('#sw-at').onclick=async()=>{ const on=!(state&&state.autoticket&&state.autoticket.enabled);
-  if(on && !await confirmDlg(`<b>Encender el ticket automático</b><p>Cuando un alquiler de MRR lleve más del ${Math.round(((state.autoticket.settings||{}).min_fraction||.25)*100)} % y entregue claramente menos de lo pagado con el rig en línea, el panel guardará las pruebas (pagado · MRR · DATUM), te avisará por Telegram con el enlace para abrir el ticket y, si marcas la casilla, las publicará en el hilo de mensajes del alquiler para el dueño. Una vez por alquiler.</p><p class="muted">MRR no tiene API de tickets: el ticket lo abres tú con un clic, con el texto ya preparado.</p>`)) return;
+  if(on && !await confirmDlg(`<b>Encender el ticket automático al terminar</b><p>Cuando un alquiler de MRR termine entregando menos de lo pagado más allá del ruido estadístico, y MRR no lo haya reembolsado, el panel guardará las pruebas (pagado · MRR · DATUM) y te mandará por Telegram el texto del ticket con el tiempo que te queda de las 12 h. Una vez por alquiler.</p><p class="muted">MRR no tiene API de tickets: el ticket lo abres tú, con el texto ya preparado.</p>`)) return;
   try{ await api('/api/tickets/settings',{enabled:on}); toast(on?'Ticket automático encendido':'Ticket automático apagado'); refresh(); }catch(e){ toast(e.message,true); } };
 $('#at-msg').onchange=async ev=>{ const on=ev.target.checked;
-  if(on && !await confirmDlg('<b>Escribir también al dueño</b><p>Cada aviso automático publicará las pruebas en el hilo de mensajes del alquiler en MRR (PUT /rental/&lt;id&gt;/message). Lo leen el dueño del rig y el soporte de MRR.</p>')){ ev.target.checked=false; return; }
+  if(on && !await confirmDlg('<b>Publicar las pruebas al dueño</b><p>Con cada aviso al terminar, el panel publicará las pruebas en el hilo de mensajes del alquiler en MRR (PUT /rental/&lt;id&gt;/message). Lo leen el dueño del rig y el soporte de MRR.</p>')){ ev.target.checked=false; return; }
   try{ await api('/api/tickets/settings',{message_owner:on}); refresh(); }catch(e){ ev.target.checked=!on; toast(e.message,true); } };
+$('#at-early').onchange=async ev=>{ const on=ev.target.checked;
+  if(on && !await confirmDlg('<b>Avisar antes al dueño</b><p>MRR pide contactar con el dueño antes de nada. Si a medio alquiler (pasado el 25 %, rig en línea) uno va claramente corto (por debajo del 95 %, 3 σ), el panel le dejará un mensaje amable con las cifras en el hilo del alquiler, una sola vez, y te avisará por Telegram.</p>')){ ev.target.checked=false; return; }
+  try{ await api('/api/tickets/settings',{warn_early:on}); refresh(); }catch(e){ ev.target.checked=!on; toast(e.message,true); } };
 // Rentals from other markets seen on the gateway (no order here: measured only)
 function renderOthers(os){
   const el=$('#other-rentals'); if(!el) return;
@@ -861,8 +872,19 @@ function renderOthers(os){
         <div class="muted mono" style="font-size:11.5px">→ ${esc(g.address||'¿?')} · ${g.connections} conexión${g.connections>1?'es':''}${g.useragents.length?' · '+esc(g.useragents.join(', ')):''}</div>
         <div class="muted" style="font-size:12px;margin-top:4px">detectado en el gateway, sin pedido en el panel: solo se mide${isP?' · si es tuyo, añádelo en «Añadir orden de PyBLØCK» para ver contrato, cara y veredicto':''}</div></div>
       <div class="vexp"><span>ahora <b>${(g.th_now||0).toFixed(2)} TH/s</b></span><span title="Por shares × dificultad del worker ${esc(g.worker||'')} en la última hora">última hora <b class="got">${g.th_1h!=null?g.th_1h.toFixed(2)+' TH/s':'–'}</b></span>${since?'<span class="muted">visto desde '+since+'</span>':''}</div>
-      <div><span class="verd starting">sin contrato</span></div></div>`; }).join('');
+      <div><span class="verd starting">sin contrato</span>${g.user?`<div style="margin-top:6px"><button class="small" data-ownw="${esc(g.user)}" title="Es un minero tuyo (p. ej. uno que pones en un mercado y vuelve a tu gateway cuando nadie lo alquila): deja de salir como alquiler">es mío</button></div>`:''}</div></div>`; }).join('');
+  el.querySelectorAll('button[data-ownw]').forEach(b=>b.onclick=async()=>{
+    if(!await confirmDlg(`<b>Marcar como minero tuyo</b><p class="mono" style="word-break:break-all">${esc(b.dataset.ownw)}</p><p class="muted">Deja de contarse como alquiler. Se puede deshacer en «Tus mineros».</p>`)) return;
+    try{ await api('/api/own-workers',{user:b.dataset.ownw,on:true}); toast('Marcado como tuyo'); refresh(); }catch(e){ toast(e.message,true); } });
   if(audit && audit.enabled) $('#v-title').textContent = rentTitle((audit.rentals||[]).length);
+}
+// Your own miners (own_workers / own_user_agents): shown apart, never as a rental
+function renderOwnMiners(ms){
+  const el=$('#own-miners'); if(!el) return;
+  el.innerHTML = ms.length ? '<span class="tag own">tu minero</span> '+ms.map(g=>`<b>${esc(g.worker||'(sin worker)')}</b> ${(g.th_now||0).toFixed(2)} TH/s ahora${g.th_1h!=null?' · '+g.th_1h.toFixed(2)+' TH/s la última hora':''} <span class="muted">(sin alquilar: vuelve a tu gateway${g.useragents.length?' · '+esc(g.useragents.join(', ')):''})</span>${g.user?` <button class="delbtn" data-unown="${esc(g.user)}" title="No es mío: que vuelva a salir como alquiler detectado">✕</button>`:''}`).join(' · ') : '';
+  el.querySelectorAll('button[data-unown]').forEach(b=>b.onclick=async()=>{
+    if(!await confirmDlg('<b>Dejar de tratarlo como tuyo</b><p class="muted">Volverá a salir como alquiler detectado si llega por un mercado.</p>')) return;
+    try{ await api('/api/own-workers',{user:b.dataset.unown,on:false}); refresh(); }catch(e){ toast(e.message,true); } });
 }
 
 // ---------------------------------------------------------------- PyBLØCK (pyblock.py)

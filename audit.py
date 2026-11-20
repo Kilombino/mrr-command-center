@@ -419,6 +419,10 @@ class Audit:
                                " VALUES (?,?,?,?,?,?)", (str(rental_id), int(now), verdict, pct, mrr_pct, evidence))
             return cur.rowcount == 1
 
+    def ticket_seen(self, rental_id):
+        with self.db() as conn:
+            return conn.execute("SELECT 1 FROM tickets WHERE rental_id=?", (str(rental_id),)).fetchone() is not None
+
     def ticket_update(self, rental_id, message_sent=None, error=None):
         with self.db() as conn:
             conn.execute("UPDATE tickets SET message_sent=?, error=? WHERE rental_id=?",

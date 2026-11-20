@@ -696,7 +696,7 @@ class PyBlock:
             w = c.get("worker") or ""
             if not c.get("subscribed") or not address_matches(rec["address"], c.get("address")):
                 continue
-            if w in others or mrr_re.match(w):
+            if w in others or mrr_re.match(w) or c.get("own_miner"):
                 continue
             if c.get("label") == "PyBLOCK rental" or "pyblock" in str(c.get("useragent") or "").lower():
                 out.append(c)

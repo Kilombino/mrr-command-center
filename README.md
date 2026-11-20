@@ -171,13 +171,25 @@ So the dashboard does this:
   counts it down). It shows the evidence in English (advertised TH/s, what MRR reports,
   what the gateway accepted from the rental's own worker, shares against expected,
   window), copies it and opens the rental on MRR, where its ticket button is.
-- **"ticket automático"** (off by default, a switch above the rentals): every 2 minutes,
-  an active MRR rental whose rig MRR shows online, past `audit.tickets.min_fraction` of its
-  length, watched for at least `min_observed_h` with `min_expected_shares`, that is short
-  below `max_pct` gets **one** notice for its whole life: the evidence is stored in
-  `audit.db` (table `tickets`), a Telegram notice with the link goes to the same chat as
-  the rent alerts, and, only if the second box "escribir también al dueño" is ticked, the
-  evidence is posted on the rental's message thread. Nothing happens in `read_only`.
+- **"ticket automático al terminar"** (off by default, a switch above the rentals) follows
+  MRR's policy: it looks at an MRR rental only once it has **ended**, inside the 12-hour
+  window, `audit.tickets.after_end_h` (8.5 h) after the end, because MRR reviews short
+  rentals itself and its automatic refunds arrive at the end or 7.5–8.7 hours later. It
+  flags the rental when the final delivery is below `max_pct` (100 %) **beyond statistical
+  noise**: shares arrive as a Poisson process, so a rig that delivered exactly what was paid
+  is measured within about 1/√(expected shares); the notice needs the shortfall to exceed
+  `sigma` (3) of those deviations (a rig that delivered in full is wrongly flagged about
+  once in 700 rentals) and at least `min_expected_shares`. It skips rentals MRR already
+  refunded (the rental's `was_refunded`, or a `Credit/Refund` for it in
+  `/account/transactions`). Then, once per rental, the evidence is stored in `audit.db`
+  (table `tickets`) and Kilobot sends the ticket text with the time left to claim. A
+  second box, **"publicar las pruebas al dueño"** (off), also posts it on the rental's
+  message thread.
+- **"avisar antes al dueño a medio alquiler"** (off): MRR asks renters to contact the owner
+  first, so a running rental that is clearly short (past `min_fraction`, rig online, below
+  `early_max_pct` 95 %, 3 sigmas) gets one polite message on its thread with the figures.
+- Nothing is sent in `read_only`. The ticket dialog also tells you when MRR has already
+  refunded the rental.
 
 ### Rentals from other markets
 
@@ -188,6 +200,10 @@ It has no contract, so no face or verdict. Sources:
 
 - **PyBLØCK market**: connections from PyBLØCK's proxy (user agent `pyblock-market/…` or its
   reverse DNS) that are not one of the PyBLØCK orders here.
+- **Your own miners are never rentals**: `own_workers` (`"worker"` or `"address.worker"`)
+  and `own_user_agents` in `config.json`, or the **"es mío"** button on a detected row. A rig
+  you list on PyBLØCK market comes back to your gateway through its proxy when nobody rents
+  it; it is shown apart as "tu minero (sin alquilar)" and can be un-marked there.
 - `other_sources` in `config.json`: a name and substrings matched against the worker, user
   agent, reverse DNS and stratum user. Defaults: `p2phash`, `tidehash`, `routehash`.
 
@@ -284,10 +300,12 @@ Keys marked *market* decide which rigs the market card lists (and the upstream b
 | `audit.series_hours` / `audit.series_bucket_s` | 6 / 600 | per-rental chart span and bucket |
 | `audit.history_days` | 7 | how long finished rentals stay in the history |
 | `audit.favorite_pct` | 95 | % of the paid hashrate a finished rental needs to star its rig |
-| `audit.tickets.min_fraction` | 0.25 | part of a rental that must have elapsed before the automatic notice |
-| `audit.tickets.min_observed_h` | 1 | hours the audit must have watched the rental's worker |
-| `audit.tickets.min_expected_shares` | 200 | shares the paid hashrate should have brought in that time |
-| `audit.tickets.max_pct` | 95 | only below this % of what was paid |
+| `audit.tickets.max_pct` | 100 | after the end: flag only below this % of what was paid (and beyond `sigma`) |
+| `audit.tickets.sigma` | `audit.sigma` (3) | standard deviations of shortfall needed after the end |
+| `audit.tickets.min_expected_shares` | 200 | shares the paid hashrate should have brought in, to judge at all |
+| `audit.tickets.after_end_h` / `window_h` | 8.5 / 12 | when to look after the end / MRR's claim window |
+| `audit.tickets.min_fraction` / `min_observed_h` / `early_max_pct` | 0.25 / 1 / 95 | the early warning to the owner |
+| `own_workers` / `own_user_agents` | `[]` | your own miners, never shown as rentals |
 | `other_sources` | p2phash, TideHash, RouteHash | `[{"name": …, "match": [substrings]}]` for detected rentals |
 
 ## Upstream bot (optional)
