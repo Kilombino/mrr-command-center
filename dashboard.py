@@ -26,6 +26,7 @@ import mrr_bot  # noqa: E402
 import audit as audit_mod  # noqa: E402
 import pyblock as pyb_mod  # noqa: E402
 import tickets as tickets_mod  # noqa: E402
+import p2hash as p2h_mod  # noqa: E402
 
 WWW = os.path.join(HERE, "www")
 HISTORY_PATH = os.path.join(HERE, "history.json")
@@ -74,6 +75,8 @@ AUDIT = [None]            # audit.Audit instance when enabled
 AUDIT_PREFIX = ["mrr"]
 PYB = [None]              # pyblock.PyBlock instance when enabled
 PYB_PREFIX = ["pyb"]
+P2H = [None]              # p2hash.P2Hash instance when enabled
+P2H_PREFIX = ["p2h"]
 LOGIN_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MRR Command Center</title><link rel="icon" href="/favicon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600&family=JetBrains+Mono&display=swap">
@@ -257,6 +260,8 @@ def parse_clients(html, own_addresses, sources=None, own_workers=None, own_uas=N
             entry["label"] = "MRR proxy"   # worker given by the audit; the proxies' rDNS is not always set
         if not entry["label"] and re.fullmatch(re.escape(PYB_PREFIX[0]) + r"[0-9a-f]{6}", worker or ""):
             entry["label"] = "PyBLOCK rental"   # worker given to PyBLØCK orders made here
+        if re.fullmatch(re.escape(P2H_PREFIX[0]) + r"[0-9a-f]{6}", worker or ""):
+            entry["label"] = "P2Hash rental"    # worker given to P2Hash rentals made here
         entry.update({
             "subscribed": True, "user": user, "address": addr, "worker": worker,
             "own": (addr in own_addresses) if own_addresses else None,
@@ -722,7 +727,7 @@ def pyb_finished(rec):
     start = rec.get("started_at") or (ends - float(hours) * 3600)
     who = rec.get("worker") or rec.get("seen_workers") or None
     a = pyb_analyse(who, start, min(ends, time.time()), th) if who else None
-    name = "pedido externo" if rec.get("external") else f"{rec.get('qty') or 1}× {rec.get('package') or ''}"
+    name = pyb_mod.PyBlock.display_name(rec)
     AUDIT[0].add_history({
         "rental_id": "pyb-" + str(rec.get("ref")), "rig_id": None, "rig_name": f"PyBLØCK {name}".strip(),
         "start_unix": int(start), "end_unix": int(ends), "advertised_th": float(th),
@@ -731,6 +736,61 @@ def pyb_finished(rec):
         "verdict": a["verdict"] if a else "none", "shares": a and a["shares"], "expected_shares": a and a["expected_shares"],
         "paid": str(rec.get("total_sats") or ""), "currency": "sats", "address": None,
         "worker": a and a["worker"], "finished": int(time.time()), "source": "pyblock"})
+
+
+# ----------------------------------------------------------------------------- P2Hash
+def p2h_measure(worker, start, end):
+    """Accepted work (difficulty-1 units) of a worker on the gateway: what P2Hash pays against."""
+    if not AUDIT[0]:
+        return 0.0
+    return AUDIT[0]._work(worker, start, end)[0]
+
+
+def p2h_address():
+    if PYB[0]:
+        return PYB[0].address()
+    a = (cfg().get("rent_address") or "").strip()
+    return (a, "config") if a else ("", "")
+
+
+def p2h_finished(s):
+    """A P2Hash rental that mined ended: keep it in the history next to MRR's."""
+    if not AUDIT[0] or not s.get("started"):
+        return
+    a = s.get("analysis") or {}
+    AUDIT[0].add_history({
+        "rental_id": "p2h-" + str(s.get("rental_id") or s.get("worker")), "rig_id": None,
+        "rig_name": f"P2Hash {s.get('title') or ''}".strip(), "start_unix": int(s["started"]),
+        "end_unix": int(s.get("ended") or time.time()), "advertised_th": float(s.get("ths") or 0),
+        "mrr_average_th": None, "delivered_th": a.get("delivered_th"), "pct": a.get("pct"),
+        "verdict": a.get("verdict") or "none", "shares": a.get("shares"), "expected_shares": a.get("expected_shares"),
+        "paid": str(s.get("sats") or ""), "currency": "sats", "address": None, "worker": s.get("worker"),
+        "finished": int(time.time()), "source": "p2hash"})
+
+
+def write_config_key(path, value):
+    """Set one (dotted) key of config.json, keeping its 600 mode."""
+    with open(mrr_bot.CONFIG_PATH) as f:
+        raw = json.load(f)
+    d = raw
+    keys = path.split(".")
+    for k in keys[:-1]:
+        d = d.setdefault(k, {})
+    d[keys[-1]] = value
+    tmp = mrr_bot.CONFIG_PATH + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(raw, f, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, mrr_bot.CONFIG_PATH)
+
+
+def p2h_view():
+    v = P2H[0].view()
+    a = v.get("active")
+    if a and a.get("worker"):
+        a["gateway_th"] = sum(c.get("hashrate_th") or 0 for c in gateway_clients() if c.get("worker") == a["worker"])
+    return v
 
 
 def mask_address(a):
@@ -762,27 +822,41 @@ def other_rentals():
         w = cl.get("worker") or ""
         if (w and (w in known or mrr_re.match(w))) or re.fullmatch(re.escape(PYB_PREFIX[0]) + r"[0-9a-f]{6}", w):
             continue
+        if re.fullmatch(re.escape(P2H_PREFIX[0]) + r"[0-9a-f]{6}", w) or audit_mod.sample_key(cl) in known:
+            continue      # a P2Hash rental of the panel, or a PyBLØCK order measured by its address
         src = ("own" if cl.get("own_miner") else "PyBLØCK market" if lab == "PyBLOCK rental"
                else lab[:-len(" rental")])
         g = groups.setdefault((src, w, cl.get("address") or ""), {
             "source": src, "worker": w, "address": mask_address(cl.get("address")), "th_now": 0.0,
-            "connections": 0, "useragents": set(), "own": cl.get("own"), "own_miner": bool(cl.get("own_miner")),
-            "user": cl.get("user") or ""})
+            "connections": 0, "useragents": set(), "hosts": set(), "own": cl.get("own"),
+            "own_miner": bool(cl.get("own_miner")), "user": cl.get("user") or "",
+            # what its work is stored under: the worker, or "@source:address" when it has none
+            "key": audit_mod.sample_key(cl)})
         g["th_now"] += cl.get("hashrate_th") or 0
         g["connections"] += 1
         if cl.get("useragent"):
             g["useragents"].add(cl["useragent"])
+        if cl.get("host"):
+            g["hosts"].add(cl["host"])
     now = time.time()
     out = []
     for g in groups.values():
         g["useragents"] = sorted(g["useragents"])
+        g["hosts"] = sorted(g["hosts"])
         g["th_1h"] = g["first_seen"] = None
-        if AUDIT[0] and g["worker"]:
+        key = g.pop("key")
+        g["by_address"] = bool(key and not g["worker"])
+        if AUDIT[0] and key:
             try:
-                work, shares, _, _, _ = AUDIT[0]._work(g["worker"], now - 3600, now)
-                g["th_1h"] = work * audit_mod.HASHES_PER_DIFF / 3600 / 1e12
+                # since it was first seen when that is less than an hour ago (else it would read low)
+                first = AUDIT[0].first_seen(key, now - 7 * 86400)
+                since = max(now - 3600, first or now - 3600)
+                work, shares, _, _, _ = AUDIT[0]._work(key, since, now)
+                span = max(now - since, AUDIT[0].poll)
+                g["th_1h"] = work * audit_mod.HASHES_PER_DIFF / span / 1e12
                 g["shares_1h"] = shares
-                g["first_seen"] = AUDIT[0].first_seen(g["worker"], now - 7 * 86400)
+                g["window_s"] = int(span)
+                g["first_seen"] = first
             except Exception as e:
                 print(f"[other rentals measure failed: {e}]", file=sys.stderr, flush=True)
         out.append(g)
@@ -903,7 +977,7 @@ def gateway_log(lines=40):
 
 # ----------------------------------------------------------------------------- http
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.4.1"
+    server_version = "mrr-dashboard/1.4.2"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):
@@ -1014,6 +1088,7 @@ class Handler(BaseHTTPRequestHandler):
                                "alt": (c.get("alt_price") or {}).get("label")},
                     "alt_rate": alt_rate()[0],
                     "pyblock": PYB[0].view() if PYB[0] else {"enabled": False},
+                    "p2hash": p2h_view() if P2H[0] else {"enabled": False},
                     **_others_split(),
                     "autoticket": (dict(tickets_mod.switches(AUDIT[0]), settings=tickets_mod.settings(c),
                                         log=AUDIT[0].tickets(100)) if AUDIT[0] else None),
@@ -1039,6 +1114,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(rig_graph(int(q["id"][0]), int(q.get("hours", ["24"])[0])))
             if url.path == "/api/pyblock":
                 return self._json(PYB[0].view(force="force" in q) if PYB[0] else {"enabled": False})
+            if url.path == "/api/p2hash":
+                return self._json(p2h_view() if P2H[0] else {"enabled": False})
+            if url.path == "/api/p2hash/check" and P2H[0]:
+                host, port = P2H[0].gateway()
+                addr, _ = p2h_address()
+                if not host or not addr:
+                    return self._json({"ok": False, "why": "falta el gateway público o la address"})
+                return self._json(p2h_mod.probe_gateway(host, port, f"{addr}.{P2H_PREFIX[0]}check"))
             if url.path == "/api/pyblock/gateway-test" and PYB[0]:
                 return self._json(PYB[0].gateway_test(force="force" in q))
             if url.path == "/api/pyblock/open" and PYB[0]:
@@ -1072,7 +1155,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             c = cfg()
             if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address",
-                                                     "/api/pyblock/order", "/api/tickets/settings", "/api/own-workers") or (
+                                                     "/api/pyblock/order", "/api/tickets/settings", "/api/own-workers")
+                                     or self.path.startswith("/api/p2hash/") or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
                 return self._json({"ok": False, "error": "read-only dashboard (read_only in config.json)"}, 403)
             if not c.get("bot_ui") and self.path in ("/api/bot", "/api/config"):
@@ -1139,6 +1223,43 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": str(e), "retryable": e.retryable,
                                        "status": e.status}, 409 if not e.retryable else 503)
                 return self._json({"error": "not found"}, 404)
+            if self.path.startswith("/api/p2hash/"):
+                if not P2H[0]:
+                    return self._json({"ok": False, "error": "P2Hash está desactivado (p2hash.enabled)"}, 400)
+                p = P2H[0]
+                try:
+                    if self.path == "/api/p2hash/quote":
+                        L = next((x for x in p.market() if x["addr"] == body.get("addr")), None)
+                        if not L:
+                            return self._json({"ok": False, "error": "ese anuncio ya no está"}, 404)
+                        p.budget()
+                        return self._json(dict(ok=True, **p.quote(L, float(body.get("hours") or 0), bool(body.get("auto")))))
+                    if self.path == "/api/p2hash/rent":
+                        return self._json({"ok": True, "rental": p.rent(str(body.get("addr") or ""), float(body.get("hours") or 0),
+                                                                       bool(body.get("auto")))})
+                    if self.path == "/api/p2hash/pay":
+                        return self._json(dict(p.confirm(int(body.get("n") or 0))))
+                    if self.path == "/api/p2hash/stop":
+                        return self._json({"ok": p.stop()})
+                    if self.path == "/api/p2hash/wallet":
+                        try:
+                            info = p.set_wallet(body.get("uri") or "", lambda u: write_config_key("p2hash.nwc", u))
+                        except ValueError as e:
+                            return self._json({"ok": False, "error": str(e)}, 400)
+                        return self._json({"ok": True, "wallet": {k: v for k, v in info.items() if k != "at"}})
+                    if self.path == "/api/p2hash/caps":
+                        return self._json({"ok": True, "caps": p.set_caps(body.get("rental_sats"), body.get("day_sats")),
+                                           "autopay": p.state.get("autopay")})
+                    if self.path == "/api/p2hash/autopay":
+                        on = p.set_autopay(bool(body.get("on")))
+                        print(f"[p2hash] autopay now {on}", file=sys.stderr, flush=True)
+                        return self._json({"ok": True, "autopay": on})
+                    if self.path == "/api/p2hash/forget":
+                        p.forget(int(body.get("idx")))
+                        return self._json({"ok": True})
+                except p2h_mod.RentError as e:
+                    return self._json({"ok": False, "error": str(e)}, 409)
+                return self._json({"error": "not found"}, 404)
             if self.path == "/api/gateway/kick":
                 status = gateway_post_cmd(cfg(), {"cmd": "kill_client", "tid": int(body["tid"]), "cid": int(body["cid"])})
                 threading.Thread(target=poll_gateway, daemon=True).start()
@@ -1166,6 +1287,12 @@ def main():
                                  mrr_ref=mrr_ref_sats, address_fallback=profile_address, analyse=pyb_analyse,
                                  on_finish=pyb_finished)
         threading.Thread(target=PYB[0].loop, daemon=True).start()
+    h = p2h_mod.settings(c)
+    if h.get("enabled", True):
+        P2H_PREFIX[0] = h.get("worker_prefix") or "p2h"
+        P2H[0] = p2h_mod.P2Hash(HERE, cfg, measure=p2h_measure, notify=mrr_bot.telegram, address_fn=p2h_address,
+                                analyse=pyb_analyse, on_finish=p2h_finished)
+        P2H[0].start()
     threading.Thread(target=gateway_loop, daemon=True).start()
     if AUDIT[0]:
         threading.Thread(target=ticket_loop, daemon=True).start()
