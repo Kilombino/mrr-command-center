@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.4.2 (21 Nov 2026)
+
+- **Rent on P2Hash from the panel.** P2Hash is PyBLØCK's hashrate market on Nostr: sellers
+  list rigs with the PyBLØCK Hashrate Agent (signed NIP-99 listings with a BOLT12 offer),
+  the buyer asks by NIP-17 and pays each tranche (10 min, say) in advance over its own
+  wallet connection (NWC). The panel speaks the agent's protocol (`pyblock-hashrate/0`) with
+  a small standard-library implementation of what it needs (BIP-340 signatures, NIP-44 v2,
+  gift wraps, WebSocket, NWC), checked against nostr-tools and run end to end against the
+  agent's own seller code. A pink box in the market card lists the rigs; a rental shows in
+  the rentals card next to MRR's and PyBLØCK's with the same face, verdict and bars, the
+  tranches paid with what the gateway measured in each, a countdown for the next payment
+  and a Stop button; finished ones go to the history.
+- **Nothing pays on its own by default.** Every tranche waits for a click ("Pagar tramo
+  N", with the seller's grace period counting down and a Telegram notice). Paying tranches
+  automatically needs the switch on, both caps set (sats per rental and per 24 h, 0 by
+  default) and the box ticked for that rental. Either way a tranche is paid only if it is
+  the next one of the running rental, for the listing's offer and price (+1 %), within the
+  hours bought and the caps, and (from the 2nd on) the gateway saw at least half the
+  advertised hash since the last payment, measured on the rental's own worker
+  (`<address>.p2h<6 hex>`). The paying connection is pasted in the box, kept only in
+  `config.json` (600) and never shown back; its budget is read before renting.
+- **PyBLØCK market rentals made on their web**: "Añadir orden de PyBLØCK" takes the order's
+  secret link (`market_minero.php?o=…`, read through `GET /orders/{secret}`) and follows it
+  whole: rigs, the stratum user it mines with (so it is measured on its worker), status,
+  refund. With only the miner's public id (`m·25f278f0`) the rig's current rental is
+  followed as an estimate (verified TH/s, end and list price from `/rigs`), measured by
+  address.
+- **Detected connections without a worker are measured**: the gateway samples of a rental
+  connection that sends only an address are stored under `@<source>:<address>`, so they get
+  a real TH/s (since they arrived, or over the last hour) instead of "–", and PyBLØCK
+  orders followed by address use the same key.
+
 ## 1.4.1 (20 Nov 2026)
 
 - **The automatic ticket now follows MRR's policy**: it looks at a rental only after it has

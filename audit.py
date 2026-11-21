@@ -78,6 +78,20 @@ def settings(cfg):
     return out
 
 
+def sample_key(c):
+    """The name a gateway connection's work is stored under: its worker; for a rental
+    connection that has none (only an address as stratum user), "@<source>:<address>",
+    so a rental from another market can still be measured by its address."""
+    w = c.get("worker") or None
+    if w:
+        return w
+    lab, addr = str(c.get("label") or ""), str(c.get("address") or "")
+    if addr and lab.endswith(" rental"):
+        import re
+        return "@%s:%s" % (re.sub(r"[^a-z0-9]+", "", lab[:-len(" rental")].lower()) or "x", addr)
+    return None
+
+
 def parse_diff(txt):
     """Share difficulty from a gateway cell: '4096' (plain) or '17.6T' (work, SI prefix)."""
     import re
@@ -149,7 +163,7 @@ class Audit:
         for c in clients:
             if not c.get("subscribed") or not c.get("skey"):
                 continue
-            rows.append((now, c["skey"], int(now - (c.get("subbed_s") or 0)), c.get("worker") or None,
+            rows.append((now, c["skey"], int(now - (c.get("subbed_s") or 0)), sample_key(c),
                          int(c.get("shares_accepted") or 0), parse_diff(c.get("vdiff"))))
         with self.db() as conn:
             conn.executemany("INSERT INTO samples VALUES (?,?,?,?,?,?)", rows)
