@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.4.3 (23 Nov 2026)
+
+- **Refund amount in the history.** When MRR refunds a rental, the finished-rentals table
+  shows how much (from the Credit/Refund entries of `/account/transactions` tied to the
+  rental, read once every 10 minutes in a single call) in the coin, and the % of what was
+  paid, instead of only a "refunded" badge.
+- **Ticket column in the history.** MRR has no ticket API, so the panel records it: the
+  "copy and open in MRR" button of the ticket dialog stores when it was used, each MRR
+  row has a toggle to mark a ticket opened by hand on MRR's site (and to clear it), and
+  rentals the automatic ticket acted on count too. The "Abrir ticket" button stops being
+  offered once a ticket is marked or MRR has refunded. Marks live in `audit.db` and go
+  with the history (7 days).
+- **Shorter page.** Finished rentals, ASICs on the gateway, the market (MRR and PyBLØCK,
+  and inside PyBLØCK its packages and P2Hash, each folding separately) and the logs are
+  collapsible, title only by default; each browser remembers what is open. The header,
+  KPIs, charts, comparison and active rentals stay as they were.
+- **Total gateway hashrate in the sticky header**, always in sight; the header is more
+  compact on phones.
+
 ## 1.4.2 (21 Nov 2026)
 
 - **Rent on P2Hash from the panel.** P2Hash is PyBLØCK's hashrate market on Nostr: sellers

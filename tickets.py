@@ -152,6 +152,45 @@ def refunded(api, rental_id):
     return False, ""
 
 
+def _when(s):
+    """MRR's "2026-11-22 02:01:55 UTC" as a unix time (None if it does not parse)."""
+    import calendar
+    try:
+        return calendar.timegm(time.strptime(str(s).replace(" UTC", "").strip(), "%Y-%m-%d %H:%M:%S"))
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_refunds(payload):
+    """{rental_id: {"amount", "currency", "at", "n"}} from an /account/transactions answer.
+
+    Only Credit/Refund entries tied to a rental, with a positive amount, count; several refunds
+    of the same rental add up (``at`` is the latest)."""
+    out = {}
+    for x in (payload or {}).get("transactions") or []:
+        if "refund" not in str(x.get("type") or "").lower() or not x.get("rental"):
+            continue
+        try:
+            amt = float(x.get("amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        if amt <= 0:
+            continue
+        rid = str(x["rental"]).strip()
+        r = out.setdefault(rid, {"amount": 0.0, "currency": x.get("currency"), "at": None, "n": 0})
+        r["amount"] = round(r["amount"] + amt, 8)
+        r["n"] += 1
+        w = _when(x.get("when"))
+        if w and (r["at"] is None or w > r["at"]):
+            r["at"] = w
+    return out
+
+
+def fetch_refunds(api, limit=100):
+    """MRR's recent refunds by rental, in one call (the 7-day history fits well inside 100)."""
+    return parse_refunds(api.call("GET", "/account/transactions", {"type": "credit/refund", "limit": int(limit)}))
+
+
 # ---------------------------------------------------------------------------- texts
 def from_history(h):
     """(rental, analysis) dicts for evidence() from a history row."""

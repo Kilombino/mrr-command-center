@@ -237,6 +237,33 @@ body.nobot #hashcard{grid-column:span 12}
 .big3{display:grid;gap:12px}
 .big3 .n{font:700 26px var(--display);letter-spacing:1px}
 @media(max-width:700px){.vrow{grid-template-columns:1fr}}
+/* ---------- collapsible sections (open/closed remembered per browser) ---------- */
+.coll>.ctog{cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
+.coll>.ctog .chev{display:inline-block;width:12px;color:var(--cyan);font:700 12px var(--mono);transition:transform .18s}
+.coll.open>.ctog .chev{transform:rotate(90deg)}
+.coll:not(.open)>.cbody{display:none}
+.card.coll:not(.open)>h2{margin-bottom:0}
+.coll:not(.open)>h3{margin-bottom:0!important}
+.coll>.ctog:hover .chev{color:var(--accent)}
+.mktsub{border:1px solid var(--line);padding:10px 12px;margin-bottom:12px;background:rgba(10,14,24,.45)}
+.mktsub>h3{margin:0 0 10px;font:700 12px var(--display);letter-spacing:2px;text-transform:uppercase;color:var(--cyan2);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.mktsub>h3 .cnt{margin-left:auto;font:500 12px var(--mono);letter-spacing:0;text-transform:none;color:var(--muted)}
+.pybbox.coll:not(.open),.p2hbox.coll:not(.open){padding-bottom:12px}
+.mktctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;font:600 12px var(--ui);color:var(--muted)}
+.mktctl input[type=number]{width:130px}
+.tkmark{background:none;border:1px dashed var(--line2);clip-path:none;padding:2px 8px;font:600 11px var(--ui);letter-spacing:.5px;text-transform:none;color:var(--muted)}
+.tkmark.on{border:1px solid rgba(60,245,154,.6);color:var(--ok);background:rgba(60,245,154,.07)}
+.tkmark:hover{box-shadow:none;border-color:var(--cyan)}
+.tkauto{font:600 11px var(--ui);color:var(--ok)}
+.ctitle{display:inline;min-width:0}
+@media(max-width:700px){
+  header{padding:8px 12px;gap:6px 10px}
+  .brand .logo{width:34px;height:34px}.brand h1{font-size:13px;letter-spacing:1.5px}.brand h1 small{font-size:8.5px;letter-spacing:2px;margin-top:3px}
+  .clock{font-size:11px;padding:2px 7px}
+  .pills{gap:4px;margin-left:0}
+  .pill{padding:3px 8px;font-size:10px;gap:5px;letter-spacing:.4px}.pill::before{width:6px;height:6px}
+}
+.refund{font:500 12px var(--mono)}.refund .verd{margin-right:6px;padding:2px 7px;font-size:10px}
   tr.rejected td{opacity:.6} tr.rejected:hover td{opacity:1}
   .tag.rej{background:rgba(255,59,92,.15);color:#ff8095;border:1px solid rgba(255,59,92,.4)}
   tr.sep td{color:#ff8095;font-size:.85em;padding-top:14px;border-top:1px dashed rgba(255,59,92,.4)}
@@ -248,6 +275,7 @@ body.nobot #hashcard{grid-column:span 12}
   <span class="clock" id="clock">--:--:--</span>
   <div class="pills">
     <span class="pill" id="p-gw">gateway: …</span>
+    <span class="pill" id="p-hash" title="Hashrate total que llega ahora al gateway (suma de clientes suscritos)">hashrate: …</span>
     <span class="pill" id="p-pool">pool: …</span>
     <span class="pill" id="p-bal">saldo MRR: …</span>
     <span class="pill bot-ui" id="p-timer">bot: …</span>
@@ -331,14 +359,23 @@ body.nobot #hashcard{grid-column:span 12}
     <div id="verdicts" class="muted">consultando…</div>
   </section>
 
-  <section class="card span12 audit-only"><i class="corner tr"></i><i class="corner bl"></i>
-    <h2>Terminados <span class="right" id="hist-info"></span></h2>
-    <div id="favs" style="margin-bottom:10px"></div>
-    <div class="scroll"><table id="t-hist"><thead><tr><th></th><th>Rig</th><th>Terminó</th><th>Duró</th><th title="Hashrate contratado">Pagado</th><th>MRR dijo</th><th title="Lo que llegó al gateway en todo el alquiler">Recibido</th><th>Veredicto</th><th>Coste</th><th></th></tr></thead><tbody></tbody></table></div>
+  <section class="card span12 noaudit-only"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2>Rentas activas <span class="tag mrrb">MRR</span> <span class="tag pyb">PyBLØCK</span></h2>
+    <div id="pyb-orders2"></div>
+    <div id="rentals"></div>
   </section>
 
-  <section class="card span12"><i class="corner tr"></i><i class="corner bl"></i>
-    <h2>ASICs en nuestro gateway <span class="right" id="asics-info"></span></h2>
+  <section class="card span12 audit-only coll" data-k="hist"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2 class="ctog">Terminados <span class="right" id="hist-info"></span></h2>
+    <div class="cbody">
+    <div id="favs" style="margin-bottom:10px"></div>
+    <div class="scroll"><table id="t-hist"><thead><tr><th></th><th>Rig</th><th>Terminó</th><th>Duró</th><th title="Hashrate contratado">Pagado</th><th>MRR dijo</th><th title="Lo que llegó al gateway en todo el alquiler">Recibido</th><th>Veredicto</th><th>Coste</th><th title="Lo que MRR te ha devuelto (Credit/Refund en tus movimientos de MRR) y qué parte es de lo que pagaste">Reembolso</th><th title="Si se abrió ticket: desde el botón del panel, marcado a mano (por ejemplo si lo abriste en la web de MRR) o aviso del ticket automático. MRR no tiene API de tickets: es un registro del panel">Ticket</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="card span12 coll" data-k="asics"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2 class="ctog">ASICs en nuestro gateway <span class="right" id="asics-info"></span></h2>
+    <div class="cbody">
     <div class="scroll"><table id="t-clients"><thead><tr>
       <th title="IP pública del minero (o del proxy que lo representa) y su DNS inverso">Origen</th>
       <th title="Dirección BTC que el minero envía como usuario stratum: a ella paga la pool (propia = está en own_addresses)">Pago a</th>
@@ -358,12 +395,7 @@ body.nobot #hashcard{grid-column:span 12}
       <span><span class="tag foreign">ajena</span> alguien de la comunidad minando a su propia dirección</span>
       <span><span class="tag idle">sin suscribir</span> conexión TCP abierta que nunca envió <code>mining.subscribe</code> (escáneres de puertos, sondas, clientes mal configurados)</span>
     </div>
-  </section>
-
-  <section class="card span6 noaudit-only"><i class="corner tr"></i><i class="corner bl"></i>
-    <h2>Rentas activas <span class="tag mrrb">MRR</span> <span class="tag pyb">PyBLØCK</span></h2>
-    <div id="pyb-orders2"></div>
-    <div id="rentals"></div>
+    </div>
   </section>
 
   <section class="card span6 bot-ui"><i class="corner tr"></i><i class="corner bl"></i>
@@ -371,35 +403,13 @@ body.nobot #hashcard{grid-column:span 12}
     <div id="actions" class="log" style="max-height:300px"></div>
   </section>
 
-  <section class="card span12"><i class="corner tr"></i><i class="corner bl"></i>
-    <h2>Mercado Blake2B <span class="muted" style="font:500 12px var(--ui);letter-spacing:0;text-transform:none">rigs usables, más baratos primero · alquilar a mano</span>
-      <span class="right row"><label class="muted" style="display:inline-flex;gap:5px;align-items:center;font:600 12px var(--ui)"><input type="checkbox" id="only-fav" style="width:auto"> solo ⭐</label> presupuesto <input id="mkt-budget" type="number" step="0.0001" style="width:130px" placeholder="auto"> <button id="btn-market" class="small">Actualizar</button></span>
-    </h2>
-    <div class="pybbox" id="pyb-box" style="display:none">
-      <h3><span class="tag pyb">PyBLØCK</span> paquetes de hashrate <span id="pyb-promo"></span><span class="right muted" style="margin-left:auto;font:500 12px var(--mono);letter-spacing:0;text-transform:none" id="pyb-info"></span></h3>
-      <div class="muted" style="font-size:12.5px;margin-bottom:8px" id="pyb-where"></div>
-      <div class="pybadd" title="Un pedido que hiciste en la web o la app de PyBLØCK (cualquier forma de pago): el panel lo sigue como los suyos. El identificador es secreto: se guarda solo en pyblock.json y no se muestra.">
-        <span style="color:#d6b3ff">Añadir orden de PyBLØCK</span>
-        <input id="pyb-add-id" type="password" autocomplete="off" spellcheck="false" placeholder="pedido: id, enlace de seguimiento, enlace del market (…?o=) o m·xxxxxxxx" title="Paquetes: id o enlace de seguimiento. Market (rigs de mineros): el enlace secreto del pedido (market_minero.php?o=…) da contrato, cara y veredicto; con solo el id del minero (m·25f278f0) se sigue el alquiler de ese rig de forma estimada.">
-        <input id="pyb-add-w" class="w" autocomplete="off" spellcheck="false" placeholder="worker (opcional)" title="El worker con el que mina en tu gateway (nombre o dirección.nombre). Sin él se mide por la dirección de cobro, de forma aproximada.">
-        <button class="small pybbtn" id="pyb-add">Añadir</button></div>
-      <div class="scroll"><table id="t-pyb"><thead><tr>
-        <th>Paquete</th><th title="TH/s por unidad">TH/s</th><th>Horas</th><th title="Unidades (máquinas); el precio no es lineal: cada paso tiene el suyo">Uds</th><th title="TH/s totales del pedido">Total TH/s</th><th class="pyb-unit-tot">sats</th><th class="pyb-unit-day" title="Total / TH / días">sats/TH/día</th><th title="Frente al mercado de MRR (últimos 10 alquileres, con su fee). Negativo = PyBLØCK más barato">vs MRR</th><th>Pago</th><th></th>
-      </tr></thead><tbody></tbody></table></div>
-      <div class="muted" style="font-size:12px;margin-top:6px">Mismo «sats» que el mercado de MRR. Solo se pide si confirmas; la factura la pagas tú desde tu wallet (aquí no se paga nada solo). Sin reembolsos, según PyBLØCK.</div>
-    </div>
-    <div class="p2hbox" id="p2h-box" style="display:none">
-      <h3><span class="tag p2h">P2Hash</span> rigs de PyBLØCK sobre Nostr · pago por tramos <span class="right muted" style="margin-left:auto;font:500 12px var(--mono);letter-spacing:0;text-transform:none" id="p2h-info"></span></h3>
-      <div class="line" id="p2h-wallet"></div>
-      <div class="line" id="p2h-where"></div>
-      <div class="line ro-hide" id="p2h-caps"></div>
-      <div class="scroll"><table id="t-p2h"><thead><tr>
-        <th>Rig</th><th title="Lo que anuncia el vendedor">TH/s</th><th class="p2h-unit-day">sats/TH/día</th><th title="Frente al mercado de MRR (últimos 10 alquileres, con su fee). Negativo = P2Hash más barato">vs MRR</th><th title="Cada tramo se paga por adelantado">Tramo</th><th>Horas</th><th>Estado</th><th></th>
-      </tr></thead><tbody></tbody></table></div>
-      <div class="muted" style="font-size:12px;margin-top:6px" id="p2h-foot">Protocolo del PyBLØCK Hashrate Agent: cada tramo se paga por adelantado a la oferta BOLT12 del vendedor desde tu conexión de pago, y solo si tu gateway ve llegar el hash. Por defecto cada tramo espera tu clic; el pago automático exige activarlo y fijar los dos topes. Tu riesgo: un tramo.</div>
-      <div id="p2h-hist" style="margin-top:8px"></div>
-    </div>
-    <h3 style="margin:4px 0 8px;font:700 12px var(--display);letter-spacing:2px;text-transform:uppercase;color:var(--cyan2)"><span class="tag mrrb">MRR</span> MiningRigRentals</h3>
+  <section class="card span12 coll" data-k="mkt"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2 class="ctog">Mercado Blake2B <span class="muted" style="font:500 12px var(--ui);letter-spacing:0;text-transform:none">MRR y PyBLØCK · alquilar a mano</span><span class="right" id="mkt-info"></span></h2>
+    <div class="cbody">
+    <div class="mktsub coll" data-k="mkt-mrr">
+      <h3 class="ctog"><span class="tag mrrb">MRR</span> MiningRigRentals <span class="muted" style="font:500 12px var(--ui);letter-spacing:0;text-transform:none">rigs usables, más baratos primero</span><span class="cnt" id="mkt-mrr-cnt"></span></h3>
+      <div class="cbody">
+    <div class="mktctl"><label style="display:inline-flex;gap:5px;align-items:center"><input type="checkbox" id="only-fav" style="width:auto"> solo ⭐</label> presupuesto <input id="mkt-budget" type="number" step="0.0001" placeholder="auto"> <button id="btn-market" class="small">Actualizar</button></div>
     <div class="row rw" style="margin-bottom:10px">
       <label style="font:600 10px var(--ui);color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">Address de cobro de lo que alquiles aquí</label>
       <input id="rent-addr" style="flex:1;min-width:260px" placeholder="vacío = la del perfil de pool de MRR" spellcheck="false">
@@ -410,13 +420,51 @@ body.nobot #hashcard{grid-column:span 12}
     <div class="scroll"><table id="t-market"><thead><tr>
       <th title="Favoritos: se marcan solos cuando un alquiler termina cumpliendo; también a mano">⭐</th><th>Rig</th><th>Región</th><th title="Hashrate anunciado">Hashrate</th><th title="Hashrate que ha dado el rig en las últimas 24 h según MRR; la línea discontinua es lo anunciado">Últimas 24 h</th><th title="Rig Performance Index de MRR: cómo ha cumplido el rig a lo largo de sus alquileres (100 = da lo anunciado)">RPI</th><th title="Media de lo que ha dado en las últimas 24 h frente a lo anunciado (de la gráfica)">Perf 24 h</th><th title="Lo que ha dado en los últimos 30 min frente a lo anunciado">Perf 30 min</th><th id="mkt-unit-h" title="Precio por TH y día">sats/TH/día</th><th id="mkt-hour-h" title="Lo que cuesta cada hora de este rig, con la comisión de MRR">sats/h (con fee)</th><th>Horas min–max</th><th></th>
     </tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+    <div class="mktsub coll" data-k="mkt-pyb" id="mkt-pyb">
+      <h3 class="ctog"><span class="tag pyb">PyBLØCK</span> paquetes y P2Hash <span class="cnt" id="mkt-pyb-cnt"></span></h3>
+      <div class="cbody">
+    <div class="pybbox coll" data-k="mkt-pyb-pkg" id="pyb-box" style="display:none">
+      <h3 class="ctog"><span class="tag pyb">PyBLØCK</span> paquetes de hashrate <span id="pyb-promo"></span><span class="right muted" style="margin-left:auto;font:500 12px var(--mono);letter-spacing:0;text-transform:none" id="pyb-info"></span></h3>
+      <div class="cbody">
+      <div class="muted" style="font-size:12.5px;margin-bottom:8px" id="pyb-where"></div>
+      <div class="pybadd" title="Un pedido que hiciste en la web o la app de PyBLØCK (cualquier forma de pago): el panel lo sigue como los suyos. El identificador es secreto: se guarda solo en pyblock.json y no se muestra.">
+        <span style="color:#d6b3ff">Añadir orden de PyBLØCK</span>
+        <input id="pyb-add-id" type="password" autocomplete="off" spellcheck="false" placeholder="pedido: id, enlace de seguimiento, enlace del market (…?o=) o m·xxxxxxxx" title="Paquetes: id o enlace de seguimiento. Market (rigs de mineros): el enlace secreto del pedido (market_minero.php?o=…) da contrato, cara y veredicto; con solo el id del minero (m·25f278f0) se sigue el alquiler de ese rig de forma estimada.">
+        <input id="pyb-add-w" class="w" autocomplete="off" spellcheck="false" placeholder="worker (opcional)" title="El worker con el que mina en tu gateway (nombre o dirección.nombre). Sin él se mide por la dirección de cobro, de forma aproximada.">
+        <button class="small pybbtn" id="pyb-add">Añadir</button></div>
+      <div class="scroll"><table id="t-pyb"><thead><tr>
+        <th>Paquete</th><th title="TH/s por unidad">TH/s</th><th>Horas</th><th title="Unidades (máquinas); el precio no es lineal: cada paso tiene el suyo">Uds</th><th title="TH/s totales del pedido">Total TH/s</th><th class="pyb-unit-tot">sats</th><th class="pyb-unit-day" title="Total / TH / días">sats/TH/día</th><th title="Frente al mercado de MRR (últimos 10 alquileres, con su fee). Negativo = PyBLØCK más barato">vs MRR</th><th>Pago</th><th></th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="muted" style="font-size:12px;margin-top:6px">Mismo «sats» que el mercado de MRR. Solo se pide si confirmas; la factura la pagas tú desde tu wallet (aquí no se paga nada solo). Sin reembolsos, según PyBLØCK.</div>
+      </div>
+    </div>
+    <div class="p2hbox coll" data-k="mkt-pyb-p2h" id="p2h-box" style="display:none">
+      <h3 class="ctog"><span class="tag p2h">P2Hash</span> rigs de PyBLØCK sobre Nostr · pago por tramos <span class="right muted" style="margin-left:auto;font:500 12px var(--mono);letter-spacing:0;text-transform:none" id="p2h-info"></span></h3>
+      <div class="cbody">
+      <div class="line" id="p2h-wallet"></div>
+      <div class="line" id="p2h-where"></div>
+      <div class="line ro-hide" id="p2h-caps"></div>
+      <div class="scroll"><table id="t-p2h"><thead><tr>
+        <th>Rig</th><th title="Lo que anuncia el vendedor">TH/s</th><th class="p2h-unit-day">sats/TH/día</th><th title="Frente al mercado de MRR (últimos 10 alquileres, con su fee). Negativo = P2Hash más barato">vs MRR</th><th title="Cada tramo se paga por adelantado">Tramo</th><th>Horas</th><th>Estado</th><th></th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="muted" style="font-size:12px;margin-top:6px" id="p2h-foot">Protocolo del PyBLØCK Hashrate Agent: cada tramo se paga por adelantado a la oferta BOLT12 del vendedor desde tu conexión de pago, y solo si tu gateway ve llegar el hash. Por defecto cada tramo espera tu clic; el pago automático exige activarlo y fijar los dos topes. Tu riesgo: un tramo.</div>
+      <div id="p2h-hist" style="margin-top:8px"></div>
+      </div>
+    </div>
+      </div>
+    </div>
+    </div>
   </section>
 
-  <section class="card span12"><i class="corner tr"></i><i class="corner bl"></i>
-    <h2>Logs <span class="right"><button id="btn-logs" class="small">Actualizar</button></span></h2>
+  <section class="card span12 coll" data-k="logs"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2 class="ctog">Logs <span class="right"><button id="btn-logs" class="small">Actualizar</button></span></h2>
+    <div class="cbody">
     <div class="row" style="align-items:flex-start">
       <div class="bot-ui" style="flex:1;min-width:300px"><div class="section-num" style="margin-bottom:5px">// mrr-bot.service</div><div id="log-bot" class="log"></div></div>
       <div style="flex:1;min-width:300px"><div class="section-num" style="margin-bottom:5px" id="log-gw-title">// datum gateway</div><div id="log-gw" class="log"></div></div>
+    </div>
     </div>
   </section>
 </main>
@@ -471,6 +519,7 @@ function render(d){
   if(gw){ const st=(gw.status.status||'').toLowerCase(); pill('#p-gw', 'gateway: <b>'+esc(gw.status.status||'?')+'</b>', st.includes('ready')||st.includes('connected')?'ok':'warn');
           pill('#p-pool', 'pool: <b>'+esc(gw.status.pool_host||'?')+'</b> · shares '+esc(gw.status.pool_shares_accepted).split('(')[0].trim()+'/'+esc(gw.status.pool_shares_rejected).split('(')[0].trim(), ''); }
   else { pill('#p-gw','gateway: <b>sin datos</b> '+esc(d.gateway_error||''),'bad'); }
+  pill('#p-hash', 'hashrate: <b>'+(gw?fmtTh(gw.total_th||0):'–')+'</b>', gw?(gw.total_th>0?'ok':'warn'):'bad');
   pill('#p-timer', 'bot: <b>'+(bot.timer_enabled?'ON':'OFF')+'</b>'+(bot.service_running?' · ejecutando':''), 'bot-ui '+(bot.timer_enabled?'ok':'warn'));
   pill('#p-upd', 'actualizado: <b>'+new Date().toLocaleTimeString()+'</b>'+(d.mrr_error?' · MRR: '+esc(d.mrr_error):''), d.mrr_error?'bad':'');
   // kpis
@@ -506,6 +555,9 @@ function render(d){
   renderRentals(mrr);
   renderPyb(d.pyblock);
   renderP2h(d.p2hash);
+  { const pb=$('#pyb-box').style.display!=='none', ph=$('#p2h-box').style.display!=='none';
+    $('#mkt-pyb').style.display = (pb||ph) ? '' : 'none';
+    $('#mkt-pyb-cnt').textContent = [pb?'paquetes':'', ph?'P2Hash':''].filter(Boolean).join(' · '); }
   renderOthers(d.others||[]);
   renderOwnMiners(d.own_miners||[]);
   renderAutoTicket(d.autoticket);
@@ -607,6 +659,8 @@ async function loadMarket(){
     $('#t-market tbody').innerHTML = m.rigs.filter(keep).map(rowHtml).join('')
       + (rej.length ? `<tr class="sep"><td colspan="13">Descartados por los filtros (${rej.length}): se pueden alquilar igual, mira el motivo</td></tr>` + rej.map(rowHtml).join('') : '');
     loadSparks();
+    $('#mkt-mrr-cnt').textContent = m.rigs.length+' usables'+(rej.length?' · '+rej.length+' descartados':'');
+    $('#mkt-info').textContent = m.rigs.length ? 'MRR: '+m.rigs.length+' rigs' : '';
     $('#t-market tbody').querySelectorAll('button[data-fav]').forEach(b=>b.onclick=async()=>{
       try{ await api('/api/favorite',{rig:b.dataset.fav,name:b.dataset.name,on:!b.classList.contains('on')}); await loadHistory(); loadMarket(); }catch(e){ toast(e.message,true); } });
     $('#t-market tbody').querySelectorAll('button[data-rent]').forEach(b=>b.onclick=async()=>{
@@ -665,6 +719,26 @@ $('#btn-addr').onclick = async()=>{ const v=$('#rent-addr').value.trim();
   try{ const r=await api('/api/rent-address',{address:v}); delete $('#rent-addr').dataset.dirty; toast(r.rent_address?'Address fijada':'Address quitada'); refresh(); }catch(e){ toast(e.message,true);} };
 $('#btn-logs').onclick = loadLogs;
 window.addEventListener('resize', ()=>state && drawChart(state.history||[]));
+
+// ---------------------------------------------------------------- collapsible sections
+// Title only by default; each section's open/closed state is remembered in this browser.
+const COLL_KEY='mrrcc.coll.';
+const COLL_ON_OPEN={logs:()=>loadLogs()};
+function collGet(k){ try{ return localStorage.getItem(COLL_KEY+k); }catch(e){ return null; } }
+function collSet(k,v){ try{ localStorage.setItem(COLL_KEY+k, v?'1':'0'); }catch(e){} }
+document.querySelectorAll('.coll').forEach(c=>{
+  const t=[...c.children].find(x=>x.classList.contains('ctog')); if(!t) return;
+  const k=c.dataset.k;
+  // the chevron and the title words go together, so a narrow screen never wraps the title away from it
+  const ti=document.createElement('span'); ti.className='ctitle'; ti.innerHTML='<span class="chev" aria-hidden="true">▸</span> ';
+  const first=t.firstChild; if(first&&first.nodeType===3) ti.appendChild(first); t.insertBefore(ti,t.firstChild);
+  t.setAttribute('role','button'); t.tabIndex=0;
+  const set=open=>{ c.classList.toggle('open',open); t.setAttribute('aria-expanded',String(open)); };
+  set(collGet(k)==='1');
+  const toggle=()=>{ const open=!c.classList.contains('open'); set(open); collSet(k,open); if(open&&COLL_ON_OPEN[k]) COLL_ON_OPEN[k](); };
+  t.addEventListener('click',ev=>{ if(ev.target.closest('button,input,select,textarea,label,a')) return; toggle(); });
+  t.addEventListener('keydown',ev=>{ if((ev.key==='Enter'||ev.key===' ')&&ev.target===t){ ev.preventDefault(); toggle(); } });
+});
 
 Promise.all([refresh(), loadHistory()]).then(loadMarket); loadLogs();
 setInterval(refresh, 15000); setInterval(loadMarket, 5*60000); setInterval(loadLogs, 60000);
@@ -813,7 +887,8 @@ async function loadHistory(){
   try{ hist=await api('/api/history'); }catch(e){ return; }
   if(typeof audit!=='undefined' && audit) renderAudit();
   const C=L().coin, H=hist.history||[];
-  $('#hist-info').textContent = `últimos ${hist.history_days||7} días · ⭐ automático si cumple ≥${hist.favorite_pct||95}%`;
+  const nRef=H.filter(h=>h.refund_amount>0).length;
+  $('#hist-info').textContent = `${H.length} terminado${H.length===1?'':'s'}${nRef?' · '+nRef+' reembolsado'+(nRef===1?'':'s'):''} · últimos ${hist.history_days||7} días · ⭐ automático si cumple ≥${hist.favorite_pct||95}%`;
   $('#favs').innerHTML = (hist.favorites||[]).length ? '<span class="muted" style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase">Favoritos</span> '+hist.favorites.map(f=>
     `<a class="tag" style="margin:2px 4px;color:var(--warn);border-color:rgba(255,210,63,.5)" href="https://www.miningrigrentals.com/rigs/${esc(f.rig_id)}" target="_blank" rel="noopener" title="${f.rentals?f.rentals+' alquiler(es) cumplidos, media '+Math.round(f.avg_pct)+'%':'marcado a mano'}">★ ${esc(f.rig_name||f.rig_id)}</a>`).join('')
     : '<span class="muted">Aún no hay favoritos: un rig entra solo cuando un alquiler suyo termina cumpliendo, o marcándolo con ☆ en el mercado.</span>';
@@ -823,7 +898,17 @@ async function loadHistory(){
     const z=(h.expected_shares>0)?(h.expected_shares-(h.shares||0))/Math.sqrt(h.expected_shares):null;
     const sad=h.delivered_th!=null && h.pct!=null && h.pct<(ts.max_pct||100) && z!=null && z>sg;   // the same test as the automatic notice
     const tk=((state&&state.autoticket&&state.autoticket.log)||[]).find(y=>String(y.rental_id)===String(h.rental_id));
-    const tkb=tk?(tk.verdict==='refunded'?' <span class="verd ok" title="'+esc(tk.error||'')+'">reembolsado</span>':' <span class="muted" style="font-size:11px">🎫 avisado</span>'):'';
+    const mk=(hist.ticket_marks||{})[String(h.rental_id)], auto=tk&&tk.verdict!=='refunded';
+    const paidN=Number(h.paid)||0, refPct=h.refund_amount>0&&paidN>0?h.refund_amount/paidN*100:null;
+    const refCell = isP ? '<span class="muted">–</span>'
+      : h.refund_amount>0 ? `<span class="refund" title="Credit/Refund de MRR${h.refund_at?' del '+fmtD(h.refund_at):''}${refPct!=null?': '+refPct.toFixed(1)+' % de lo pagado ('+esc(h.paid)+')':''}"><span class="verd ok">reembolsado</span>${fmtBtc(h.refund_amount)} ${esc(h.currency==='BTC'?C:(h.currency||C))}${refPct!=null?' <span class="muted">('+Math.round(refPct)+' %)</span>':''}</span>`
+      : tk&&tk.verdict==='refunded' ? `<span class="refund" title="${esc(tk.error||'')}"><span class="verd ok">reembolsado</span><span class="muted">importe en camino</span></span>`
+      : '<span class="muted">–</span>';
+    const fmtMk=x=>x?new Date(x.at*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+    const tkCell = isP ? '<span class="muted">–</span>'
+      : mk ? `<button class="tkmark on" data-tkmark="${esc(h.rental_id)}" data-on="0" title="${mk.how==='panel'?'Abierto con el botón del panel':'Marcado a mano'} el ${fmtMk(mk)}. Clic para desmarcar">🎫 ticket abierto ✓</button>`
+      : auto ? `<span class="tkauto" title="Ticket automático: aviso con las pruebas el ${fmtMk(tk)}${tk.message_sent?' (pruebas publicadas al dueño)':''}">🎫 aviso auto ✓</span> <button class="tkmark ro-hide" data-tkmark="${esc(h.rental_id)}" data-on="1" title="Marca que además abriste el ticket en MRR">abierto</button>`
+      : `<button class="tkmark ro-hide" data-tkmark="${esc(h.rental_id)}" data-on="1" title="Marca que abriste ticket para este alquiler (por ejemplo en la web de MRR)">☐ ticket abierto</button>`;
     const left=h.end_unix ? (h.end_unix+12*3600-Date.now()/1000)/3600 : -1;
     return `<tr>
     <td>${face({advertised_th:h.advertised_th,mrr_average_th:h.mrr_average_th,analysis:h.delivered_th!=null?{delivered_th:h.delivered_th}:null}, isH?'el vendedor':isP?'PyBLØCK':'MRR').replace('class="face"','class="face" style="width:30px;height:30px"')}</td>
@@ -832,11 +917,14 @@ async function loadHistory(){
     <td>${fmtD(h.end_unix)}</td><td>${fmtH((h.end_unix-h.start_unix)/3600)}</td>
     <td>${(h.advertised_th||0).toFixed(2)} TH/s</td><td>${h.mrr_average_th!=null?h.mrr_average_th.toFixed(2)+' TH/s':'–'}</td>
     <td><b style="color:var(--accent2)">${h.delivered_th!=null?h.delivered_th.toFixed(2)+' TH/s':'–'}</b>${h.pct!=null?' <span class="muted">('+Math.round(h.pct)+'%)</span>':''}</td>
-    <td><span class="verd ${esc(h.verdict)}">${VTXT[h.verdict]||esc(h.verdict)}</span>${!isP&&sad&&left>0?` <button class="small tkbtn" data-ticket="${esc(h.rental_id)}" title="Llegó ${z!=null?z.toFixed(1):'?'} σ por debajo de lo pagado. MRR revisa reembolsos hasta 12 h después de terminar: quedan ${fmtLeft(left)}">Abrir ticket · ${fmtLeft(left)}</button>`:''}${tkb}</td>
+    <td><span class="verd ${esc(h.verdict)}">${VTXT[h.verdict]||esc(h.verdict)}</span>${!isP&&sad&&left>0&&!mk&&!(h.refund_amount>0)?` <button class="small tkbtn" data-ticket="${esc(h.rental_id)}" title="Llegó ${z!=null?z.toFixed(1):'?'} σ por debajo de lo pagado. MRR revisa reembolsos hasta 12 h después de terminar: quedan ${fmtLeft(left)}">Abrir ticket · ${fmtLeft(left)}</button>`:''}</td>
     <td class="mono">${isP?(Number(h.paid)||0).toLocaleString()+' '+esc(isH?xbtUnit():L().unit):esc(h.paid)+' '+esc(h.currency==='BTC'?C:(h.currency||''))}</td>
+    <td>${refCell}</td><td>${tkCell}</td>
     <td><button class="delbtn" data-hdel="${esc(h.rental_id)}" data-name="${esc(h.rig_name||h.rental_id)}" title="Borrar del historial ya (si no, se borra solo a los ${hist.history_days||7} días)">🗑</button></td></tr>`; }).join('')
-    : `<tr><td colspan="10" class="muted">Ningún alquiler ha terminado desde que se guarda el historial.</td></tr>`;
+    : `<tr><td colspan="12" class="muted">Ningún alquiler ha terminado desde que se guarda el historial.</td></tr>`;
   $('#t-hist').querySelectorAll('button[data-ticket]').forEach(b=>b.onclick=()=>openTicket(b.dataset.ticket));
+  $('#t-hist').querySelectorAll('button[data-tkmark]').forEach(b=>b.onclick=async()=>{ const on=b.dataset.on==='1';
+    try{ await api('/api/tickets/mark',{rental_id:b.dataset.tkmark, on, how:'manual'}); toast(on?'Marcado: ticket abierto':'Marca de ticket quitada'); loadHistory(); }catch(e){ toast(e.message,true); } });
   $('#t-hist').querySelectorAll('button[data-hdel]').forEach(b=>b.onclick=async()=>{
     if(!await confirmDlg(`<b>Borrar del historial</b><p>${esc(b.dataset.name)}</p><p class="muted">Solo se quita de esta lista; los favoritos se quedan como están.</p>`)) return;
     try{ await api('/api/history/delete',{rental_id:b.dataset.hdel}); toast('Borrado del historial'); loadHistory(); }catch(e){ toast(e.message,true); } });
@@ -853,12 +941,14 @@ function isSad(x){ const a=x.analysis; return !!(a && a.delivered_th!=null && x.
 function ticketInfo(x){
   const t=((state&&state.autoticket&&state.autoticket.log)||[]).find(y=>String(y.rental_id)===String(x.id)+':early');
   const done=t?`<div class="muted" style="font-size:11px;margin-top:4px" title="${esc(t.error||'')}">📨 ${t.message_sent?'dueño avisado':'<span class="bad">aviso al dueño falló</span>'} ${new Date(t.at*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>`:'';
-  return (isSad(x)?`<div style="margin-top:6px"><button class="small tkbtn" data-ticket="${esc(x.id)}" title="Prepara el texto con las pruebas y abre el alquiler en MRR">Abrir ticket</button></div>`:'')+done;
+  const mk=((typeof hist!=='undefined'&&hist&&hist.ticket_marks)||{})[String(x.id)];
+  const mkd=mk?`<div class="tkauto" style="margin-top:4px" title="${mk.how==='panel'?'Abierto con el botón del panel':'Marcado a mano'}">🎫 ticket abierto ${new Date(mk.at*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>`:'';
+  return (isSad(x)?`<div style="margin-top:6px"><button class="small tkbtn" data-ticket="${esc(x.id)}" title="Prepara el texto con las pruebas y abre el alquiler en MRR">Abrir ticket</button></div>`:'')+mkd+done;
 }
 let tkCur=null;
 async function openTicket(id){
   try{
-    const d=await api('/api/ticket-draft?id='+encodeURIComponent(id)); tkCur=d;
+    const d=await api('/api/ticket-draft?id='+encodeURIComponent(id)); tkCur=d; d.id=id;
     const left=d.end_unix?(d.end_unix+12*3600-Date.now()/1000)/3600:null;
     $('#tk-head').innerHTML = `<b>Ticket para el alquiler #${esc(id)}</b>
       <p class="muted" style="font-size:12.5px;margin:6px 0 8px">MRR no deja abrir tickets por su API: copia este texto y pégalo en el ticket del alquiler (botón de ticket en su página de MRR).
@@ -870,7 +960,9 @@ $('#tk-close').onclick=()=>$('#tk-dlg').close();
 $('#tk-go').onclick=async()=>{ if(!tkCur) return;
   try{ await navigator.clipboard.writeText(tkCur.text); toast('Texto copiado: pégalo en el ticket'); }
   catch(e){ $('#tk-text').select(); document.execCommand('copy'); toast('Texto copiado: pégalo en el ticket'); }
-  window.open(tkCur.url,'_blank','noopener'); };
+  window.open(tkCur.url,'_blank','noopener');
+  // MRR has no ticket API: the panel keeps its own record (when, and that it came from the button)
+  try{ await api('/api/tickets/mark',{rental_id:tkCur.id, on:true, how:'panel'}); loadHistory(); }catch(e){} };
 function renderAutoTicket(t){
   const bar=$('#at-bar'); if(!t){ bar.style.display='none'; return; } bar.style.display='';
   $('#sw-at').className='switch'+(t.enabled?' on':''); $('#at-label').textContent='ticket automático al terminar: '+(t.enabled?'encendido':'apagado');

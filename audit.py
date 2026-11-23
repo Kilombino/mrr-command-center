@@ -148,6 +148,13 @@ class Audit:
             hcols = [r[1] for r in c.execute("PRAGMA table_info(history)")]
             if "source" not in hcols:   # "mrr" (default), "pyblock"
                 c.execute("ALTER TABLE history ADD COLUMN source TEXT")
+            if "refund_amount" not in hcols:   # what MRR gave back (Credit/Refund), in the rental's currency
+                c.execute("ALTER TABLE history ADD COLUMN refund_amount REAL")
+                c.execute("ALTER TABLE history ADD COLUMN refund_at INTEGER")
+            # tickets opened for a rental: from the panel's button ("panel") or ticked by hand ("manual",
+            # for the ones opened on MRR's site). MRR has no ticket API, so this is our own record.
+            c.execute("""CREATE TABLE IF NOT EXISTS ticket_marks (
+                rental_id TEXT PRIMARY KEY, at INTEGER NOT NULL, how TEXT)""")
             # small key/value store for settings changed from the dashboard (auto-ticket toggle)
             c.execute("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)")
             # one row per rental the auto-ticket acted on: never twice for the same rental
@@ -365,6 +372,7 @@ class Audit:
                 conn.execute("DELETE FROM active WHERE rental_id=?", (d["id"],))
         with self.db() as conn:
             conn.execute("DELETE FROM history WHERE finished < ?", (now - int(self.s["history_days"] * 86400),))
+            conn.execute("DELETE FROM ticket_marks WHERE at < ?", (now - int((self.s["history_days"] + 2) * 86400),))
 
     def finish(self, api, d, now):
         import mrr_bot
@@ -446,12 +454,39 @@ class Audit:
         with self.db() as conn:
             return [dict(r) for r in conn.execute("SELECT * FROM tickets ORDER BY at DESC LIMIT ?", (int(limit),))]
 
+    def ticket_mark(self, rental_id, on=True, how="manual", now=None):
+        """Record (or clear) that a ticket was opened for a rental. The first time is kept."""
+        rid = str(rental_id or "").strip()
+        if not rid:
+            raise ValueError("falta el alquiler")
+        with self.db() as conn:
+            if on:
+                conn.execute("INSERT OR IGNORE INTO ticket_marks VALUES (?,?,?)",
+                             (rid, int(now or time.time()), how if how in ("panel", "manual") else "manual"))
+            else:
+                conn.execute("DELETE FROM ticket_marks WHERE rental_id=?", (rid,))
+
+    def ticket_marks(self):
+        with self.db() as conn:
+            return {r["rental_id"]: {"at": r["at"], "how": r["how"]}
+                    for r in conn.execute("SELECT * FROM ticket_marks")}
+
+    def set_refunds(self, refunds):
+        """Write MRR's refunds ({rental_id: {"amount", "at"}}) on the history rows. Returns rows changed."""
+        n = 0
+        with self.db() as conn:
+            for rid, r in (refunds or {}).items():
+                n += conn.execute("UPDATE history SET refund_amount=?, refund_at=? WHERE rental_id=?"
+                                  " AND (refund_amount IS NOT ? OR refund_at IS NOT ?)",
+                                  (r["amount"], r.get("at"), str(rid), r["amount"], r.get("at"))).rowcount
+        return n
+
     def history(self):
         with self.db() as conn:
             hist = [dict(r) for r in conn.execute("SELECT * FROM history ORDER BY finished DESC")]
             favs = [dict(r) for r in conn.execute("SELECT * FROM favorites ORDER BY avg_pct DESC")]
         return {"history": hist, "favorites": favs, "history_days": self.s["history_days"],
-                "favorite_pct": self.s["favorite_pct"]}
+                "favorite_pct": self.s["favorite_pct"], "ticket_marks": self.ticket_marks()}
 
     def favorite(self, rig_id, name=None, on=True):
         with self.db() as conn:

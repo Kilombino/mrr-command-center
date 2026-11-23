@@ -914,13 +914,37 @@ def set_own_worker(user, on=True):
     return cur
 
 
+REFUND_EVERY = 600      # seconds between reads of MRR's refunds (one /account/transactions call)
+_refunds_at = [0.0]
+
+
+def refresh_refunds(force=False):
+    """Copy MRR's Credit/Refund amounts onto the history rows (every 10 min, or now with force)."""
+    if not AUDIT[0] or (not force and time.time() - _refunds_at[0] < REFUND_EVERY):
+        return 0
+    _refunds_at[0] = time.time()
+    api = mrr_api(cfg())
+    try:
+        return AUDIT[0].set_refunds(tickets_mod.fetch_refunds(api))
+    finally:
+        mrr_bot.save_state(api.state)
+
+
 def ticket_loop():
-    """Auto-ticket pass every 2 min (does nothing while its switch is off)."""
+    """Auto-ticket pass every 2 min (does nothing while its switch is off), and MRR's refunds."""
+    first = True
     while True:
-        time.sleep(120)
+        time.sleep(20 if first else 120)
+        first = False
         try:
             if not AUDIT[0]:
                 continue
+            try:
+                n = refresh_refunds()
+                if n:
+                    print(f"[refunds] {n} history row(s) updated from MRR", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[refunds failed: {e}]", file=sys.stderr, flush=True)
             c = cfg()
             data, _ = mrr_overview()
             rentals = (data or {}).get("rentals") or []
@@ -977,7 +1001,7 @@ def gateway_log(lines=40):
 
 # ----------------------------------------------------------------------------- http
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.4.2"
+    server_version = "mrr-dashboard/1.4.3"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):
@@ -1155,7 +1179,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             c = cfg()
             if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address",
-                                                     "/api/pyblock/order", "/api/tickets/settings", "/api/own-workers")
+                                                     "/api/pyblock/order", "/api/tickets/settings", "/api/own-workers",
+                                                     "/api/tickets/mark")
                                      or self.path.startswith("/api/p2hash/") or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
                 return self._json({"ok": False, "error": "read-only dashboard (read_only in config.json)"}, 403)
@@ -1172,6 +1197,11 @@ class Handler(BaseHTTPRequestHandler):
                 n = AUDIT[0].delete_history(str(body.get("rental_id") or ""))
                 return self._json({"ok": n > 0, "deleted": n} if n else {"ok": False, "error": "no está en el historial"},
                                   200 if n else 404)
+            if self.path == "/api/tickets/mark":
+                if not AUDIT[0]:
+                    return self._json({"error": "audit is off"}, 400)
+                AUDIT[0].ticket_mark(body.get("rental_id"), bool(body.get("on", True)), body.get("how") or "manual")
+                return self._json({"ok": True, "ticket_marks": AUDIT[0].ticket_marks()})
             if self.path == "/api/tickets/settings":
                 if not AUDIT[0]:
                     return self._json({"error": "audit is off"}, 400)

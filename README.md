@@ -287,6 +287,22 @@ filtered to show only them. Each entry has a 🗑 button to delete it now (with 
 confirmation) instead of waiting for `history_days`. A rental that MRR's list leaves out
 once (a glitch or its 100 calls/min limit) is no longer taken for finished while it runs.
 
+Two more columns per MRR rental. **Refund**: what MRR gave back, read every 10 minutes
+from `/account/transactions` (Credit/Refund entries tied to the rental; several add up),
+in the coin and as a % of what was paid. **Ticket**: MRR has no ticket API, so the panel
+keeps its own record: the "copy and open in MRR" button of the ticket dialog stamps it,
+a "ticket abierto" toggle on each row marks the ones opened by hand on MRR's site (click
+again to clear it), and rentals the automatic ticket acted on show as "aviso auto ✓".
+
+### Layout
+
+The sticky header (gateway, **total gateway hashrate**, pool and shares, MRR balance,
+last update) and the top of the page (KPIs, charts, the comparison and the active
+rentals) are always shown. Finished rentals, the gateway's ASICs, the market (with MRR
+and PyBLØCK, and inside PyBLØCK its packages and P2Hash, each folding on its own) and
+the logs are collapsible sections, closed by default: click the title. Each browser
+remembers which ones are open (`localStorage`; the page works the same without it).
+
 ### Smaller changes
 
 - `datum_service_scope`: `"system"` shows the journal of a system unit
