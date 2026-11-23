@@ -66,6 +66,8 @@ DEFAULTS = {
     "history_days": 7,           # finished rentals kept in the history
     "favorite_pct": 95,          # a finished rental at or above this % of what was paid...
                                  # ...with an ok/over verdict makes its rig a favourite
+    "blacklist_pct": 95,         # a finished rental below this % of what was paid (the sad face)
+                                 # puts its rig on the blacklist; so does a ticket opened for it
 }
 
 _lock = threading.Lock()
@@ -155,12 +157,20 @@ class Audit:
             # for the ones opened on MRR's site). MRR has no ticket API, so this is our own record.
             c.execute("""CREATE TABLE IF NOT EXISTS ticket_marks (
                 rental_id TEXT PRIMARY KEY, at INTEGER NOT NULL, how TEXT)""")
+            # rigs that did not give what was paid (sad face at the end) or got a ticket: shown marked in
+            # the market. Taken off by hand; "cleared" remembers when, so the same rentals don't put it back.
+            new_bl = not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='blacklist'").fetchone()
+            c.execute("""CREATE TABLE IF NOT EXISTS blacklist (
+                rig_id TEXT PRIMARY KEY, rig_name TEXT, reasons TEXT, rental_id TEXT, pct REAL, at INTEGER NOT NULL)""")
+            c.execute("CREATE TABLE IF NOT EXISTS blacklist_cleared (rig_id TEXT PRIMARY KEY, at INTEGER NOT NULL)")
             # small key/value store for settings changed from the dashboard (auto-ticket toggle)
             c.execute("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)")
             # one row per rental the auto-ticket acted on: never twice for the same rental
             c.execute("""CREATE TABLE IF NOT EXISTS tickets (
                 rental_id TEXT PRIMARY KEY, at INTEGER NOT NULL, verdict TEXT, pct REAL, mrr_pct REAL,
                 evidence TEXT, message_sent INTEGER, error TEXT)""")
+        if new_bl:
+            self._blacklist_backfill()
 
     def record(self, clients, poll_seconds):
         """Store one gateway poll (the parsed client list of dashboard.py)."""
@@ -405,6 +415,79 @@ class Audit:
                 avg_pct = ((f["avg_pct"] or 0) * (n - 1) + a["pct"]) / n if f else a["pct"]
                 conn.execute("INSERT OR REPLACE INTO favorites VALUES (?,?,?,?,?,?)",
                              (d["rig_id"], d["rig_name"], n, avg_pct, a["pct"], now))
+            if a and self._sad({"delivered_th": a["delivered_th"], "pct": a["pct"], "verdict": a["verdict"]}):
+                self._blacklist_put(conn, d["rig_id"], d["rig_name"], "sad", d["id"], a["pct"], d["end_unix"])
+
+    # ------------------------------------------------------------------ blacklist
+
+    def _blacklist_put(self, conn, rig_id, name, reason, rental_id, pct, when):
+        """Put a rig on the blacklist for [reason] ("sad" or "ticket"), unless it was taken off after [when]."""
+        rig = str(rig_id or "").strip()
+        if not rig or rig == "None":
+            return False
+        cl = conn.execute("SELECT at FROM blacklist_cleared WHERE rig_id=?", (rig,)).fetchone()
+        if cl and int(when or 0) <= cl["at"]:
+            return False
+        old = conn.execute("SELECT * FROM blacklist WHERE rig_id=?", (rig,)).fetchone()
+        reasons = sorted(set(((old["reasons"] or "").split(",") if old else []) + [reason]) - {""})
+        worst = min([x for x in (pct, old["pct"] if old else None) if x is not None], default=None)
+        conn.execute("INSERT OR REPLACE INTO blacklist VALUES (?,?,?,?,?,?)",
+                     (rig, name or (old["rig_name"] if old else None), ",".join(reasons),
+                      str(rental_id) if rental_id is not None else (old["rental_id"] if old else None),
+                      worst, int(old["at"]) if old else int(time.time())))
+        return True
+
+    def _sad(self, h):
+        """The sad face of a finished rental: less than blacklist_pct of what was paid reached the gateway."""
+        return (h.get("delivered_th") is not None and h.get("pct") is not None and h.get("verdict") != "shared"
+                and h["pct"] < self.s["blacklist_pct"])
+
+    def _blacklist_backfill(self):
+        """Once, when the table is new: the finished rentals and tickets already in the database."""
+        with self.db() as conn:
+            for h in conn.execute("SELECT * FROM history"):
+                h = dict(h)
+                if self._sad(h):
+                    self._blacklist_put(conn, h["rig_id"], h["rig_name"], "sad", h["rental_id"], h["pct"], h["end_unix"])
+            for t in conn.execute("SELECT m.rental_id, m.at, h.rig_id, h.rig_name, h.pct FROM ticket_marks m"
+                                  " JOIN history h ON h.rental_id = m.rental_id"):
+                self._blacklist_put(conn, t["rig_id"], t["rig_name"], "ticket", t["rental_id"], t["pct"], t["at"])
+
+    def _rig_of(self, conn, rental_id):
+        """(rig_id, rig_name, pct) of a rental, from the history or the active list."""
+        h = conn.execute("SELECT rig_id, rig_name, pct FROM history WHERE rental_id=?", (str(rental_id),)).fetchone()
+        if h:
+            return h["rig_id"], h["rig_name"], h["pct"]
+        a = conn.execute("SELECT data FROM active WHERE rental_id=?", (str(rental_id),)).fetchone()
+        if a:
+            d = json.loads(a["data"])
+            return d.get("rig_id"), d.get("rig_name"), None
+        return None, None, None
+
+    def blacklist_ticket(self, rental_id, now=None):
+        """A ticket was opened for a rental (by hand, from the panel or the automatic one): its rig goes on the list."""
+        now = int(now or time.time())
+        with self.db() as conn:
+            rig, name, pct = self._rig_of(conn, rental_id)
+            return self._blacklist_put(conn, rig, name, "ticket", rental_id, pct, now)
+
+    def blacklist(self):
+        with self.db() as conn:
+            return [dict(r) for r in conn.execute("SELECT * FROM blacklist ORDER BY at DESC")]
+
+    def blacklist_set(self, rig_id, name=None, on=True, now=None):
+        """By hand: put a rig on the list ("manual") or take it off (it stays off until a new bad rental or ticket)."""
+        rig = str(rig_id or "").strip()
+        if not rig:
+            raise ValueError("falta el rig")
+        now = int(now or time.time())
+        with self.db() as conn:
+            if on:
+                conn.execute("DELETE FROM blacklist_cleared WHERE rig_id=?", (rig,))
+                self._blacklist_put(conn, rig, name, "manual", None, None, now)
+            else:
+                conn.execute("DELETE FROM blacklist WHERE rig_id=?", (rig,))
+                conn.execute("INSERT OR REPLACE INTO blacklist_cleared VALUES (?,?)", (rig, now))
 
     def add_history(self, row):
         """Store a finished rental from another source (PyBLØCK): a dict with the history columns."""
@@ -463,6 +546,8 @@ class Audit:
             if on:
                 conn.execute("INSERT OR IGNORE INTO ticket_marks VALUES (?,?,?)",
                              (rid, int(now or time.time()), how if how in ("panel", "manual") else "manual"))
+                rig, name, pct = self._rig_of(conn, rid)
+                self._blacklist_put(conn, rig, name, "ticket", rid, pct, int(now or time.time()))
             else:
                 conn.execute("DELETE FROM ticket_marks WHERE rental_id=?", (rid,))
 
@@ -486,7 +571,8 @@ class Audit:
             hist = [dict(r) for r in conn.execute("SELECT * FROM history ORDER BY finished DESC")]
             favs = [dict(r) for r in conn.execute("SELECT * FROM favorites ORDER BY avg_pct DESC")]
         return {"history": hist, "favorites": favs, "history_days": self.s["history_days"],
-                "favorite_pct": self.s["favorite_pct"], "ticket_marks": self.ticket_marks()}
+                "favorite_pct": self.s["favorite_pct"], "ticket_marks": self.ticket_marks(),
+                "blacklist": self.blacklist(), "blacklist_pct": self.s["blacklist_pct"]}
 
     def favorite(self, rig_id, name=None, on=True):
         with self.db() as conn:

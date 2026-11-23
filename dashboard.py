@@ -1235,7 +1235,7 @@ def gateway_log(lines=40):
 
 # ----------------------------------------------------------------------------- http
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.4.3"
+    server_version = "mrr-dashboard/1.4.4"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):
@@ -1443,6 +1443,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "audit is off"}, 400)
                 AUDIT[0].favorite(int(body["rig"]), body.get("name"), bool(body.get("on", True)))
                 return self._json({"ok": True})
+            if self.path == "/api/blacklist":
+                if not AUDIT[0]:
+                    return self._json({"error": "audit is off"}, 400)
+                try:
+                    AUDIT[0].blacklist_set(body.get("rig"), body.get("name"), bool(body.get("on", True)))
+                except ValueError as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                return self._json({"ok": True, "blacklist": AUDIT[0].blacklist()})
             if self.path == "/api/history/delete":
                 if not AUDIT[0]:
                     return self._json({"error": "audit is off"}, 400)
