@@ -288,5 +288,124 @@ class SourceTests(unittest.TestCase):
         self.assertEqual([c["label"] for c in cl], ["p2phash rental", "PyBLOCK rental"])
 
 
+class TicketMarkTests(unittest.TestCase):
+    """1.4.3: whether a ticket was opened (panel button or ticked by hand) is kept in audit.db."""
+    def test_mark_persists_and_clears(self):
+        tmp = tempfile.mkdtemp()
+        au = audit_mod.Audit(tmp, {"audit": {"db": "audit.db"}})
+        au.add_history(hist())
+        au.ticket_mark("5900001", True, "panel", now=NOW)
+        au.ticket_mark("5900001", True, "manual", now=NOW + 60)      # the first time is kept
+        again = audit_mod.Audit(tmp, {"audit": {"db": "audit.db"}})  # a restart reads it back
+        self.assertEqual(again.ticket_marks(), {"5900001": {"at": NOW, "how": "panel"}})
+        self.assertEqual(again.history()["ticket_marks"]["5900001"]["how"], "panel")
+        again.ticket_mark("5900001", False)
+        self.assertEqual(audit_mod.Audit(tmp, {"audit": {"db": "audit.db"}}).ticket_marks(), {})
+
+    def test_mark_input(self):
+        au = audit_mod.Audit(tempfile.mkdtemp(), {"audit": {"db": "audit.db"}})
+        au.ticket_mark(5900002, True, "<script>", now=NOW)               # unknown origin -> manual
+        self.assertEqual(au.ticket_marks()["5900002"]["how"], "manual")
+        with self.assertRaises(ValueError):
+            au.ticket_mark("  ", True)
+
+    def test_old_marks_pruned_with_the_history(self):
+        au = audit_mod.Audit(tempfile.mkdtemp(), {"audit": {"db": "audit.db"}})
+        now = int(time.time())
+        au.ticket_mark("old", True, now=now - 30 * 86400)
+        au.ticket_mark("new", True, now=now)
+        au.track(None, [], now)
+        self.assertEqual(sorted(au.ticket_marks()), ["new"])
+
+
+TX = {"total": "5", "returned": "5", "transactions": [
+    {"id": "1", "type": "Credit/Refund", "currency": "BTC", "amount": "0.00120000",
+     "when": "2026-11-22 01:40:00 UTC", "rental": "5800101", "rig": "1", "status": "Cleared"},
+    {"id": "2", "type": "Credit/Refund", "currency": "BTC", "amount": "0.00002500",
+     "when": "2026-11-22 02:00:00 UTC", "rental": "5800102", "rig": "2", "status": "Cleared"},
+    {"id": "3", "type": "Credit/Refund", "currency": "BTC", "amount": "0.00001000",
+     "when": "2026-11-22 09:00:00 UTC", "rental": "5800102", "rig": "2", "status": "Cleared"},  # a second one adds up
+    {"id": "4", "type": "Rental Payment", "currency": "BTC", "amount": "-0.00100000", "rental": "5800103"},
+    {"id": "5", "type": "Credit/Refund", "currency": "BTC", "amount": "0", "rental": "5800104"},
+    {"id": "6", "type": "Credit/Refund", "currency": "BTC", "amount": "0.5"},                  # not tied to a rental
+    {"id": "7", "type": "Credit/Refund", "currency": "BTC", "amount": "abc", "rental": "5800105"},
+]}
+
+
+class RefundTests(unittest.TestCase):
+    """1.4.3: the refund amount comes from MRR's /account/transactions (Credit/Refund by rental)."""
+    def test_parse(self):
+        r = tickets.parse_refunds(TX)
+        self.assertEqual(sorted(r), ["5800101", "5800102"])
+        self.assertAlmostEqual(r["5800101"]["amount"], 0.0012)
+        self.assertEqual(r["5800101"]["at"], 1795311600)          # 2026-11-22 01:40:00 UTC
+        self.assertAlmostEqual(r["5800102"]["amount"], 0.000035)
+        self.assertEqual(r["5800102"]["n"], 2)
+        self.assertEqual(r["5800102"]["at"], tickets._when("2026-11-22 09:00:00 UTC"))
+        self.assertEqual(tickets.parse_refunds(None), {})
+        self.assertEqual(tickets.parse_refunds({"transactions": None}), {})
+
+    def test_fetch_is_one_call(self):
+        class API:
+            calls = []
+
+            def call(self, m, ep, params=None, body=None):
+                self.calls.append((m, ep, params))
+                return TX
+        api = API()
+        self.assertIn("5800101", tickets.fetch_refunds(api))
+        self.assertEqual(api.calls, [("GET", "/account/transactions", {"type": "credit/refund", "limit": 100})])
+
+    def test_written_on_the_history(self):
+        au = audit_mod.Audit(tempfile.mkdtemp(), {"audit": {"db": "audit.db"}})
+        au.add_history(hist(rental_id="5800101", paid="0.00150000"))
+        au.add_history(hist(rental_id="5900009"))
+        r = tickets.parse_refunds(TX)
+        self.assertEqual(au.set_refunds(r), 1)              # only the rental in the history
+        self.assertEqual(au.set_refunds(r), 0)              # nothing new the second time
+        h = {x["rental_id"]: x for x in au.history()["history"]}
+        self.assertAlmostEqual(h["5800101"]["refund_amount"], 0.0012)
+        self.assertAlmostEqual(h["5800101"]["refund_amount"] / float(h["5800101"]["paid"]) * 100, 80.0, places=2)
+        self.assertIsNone(h["5900009"]["refund_amount"])
+
+    def test_dashboard_refresh(self):
+        tmp = tempfile.mkdtemp()
+        au = audit_mod.Audit(tmp, {"audit": {"db": "audit.db"}})
+        au.add_history(hist(rental_id="5800102"))
+
+        class API:
+            state = {}
+
+            def call(self, m, ep, params=None, body=None):
+                return TX
+        old = (dashboard.AUDIT[0], dashboard.mrr_api, dashboard.mrr_bot.save_state, dashboard._refunds_at[0])
+        try:
+            dashboard.AUDIT[0] = au
+            dashboard.mrr_api = lambda c: API()
+            dashboard.mrr_bot.save_state = lambda st: None
+            dashboard._refunds_at[0] = 0
+            self.assertEqual(dashboard.refresh_refunds(), 1)
+            self.assertEqual(dashboard.refresh_refunds(), 0)        # not again within 10 min
+        finally:
+            dashboard.AUDIT[0], dashboard.mrr_api, dashboard.mrr_bot.save_state, dashboard._refunds_at[0] = old
+        self.assertAlmostEqual(au.history()["history"][0]["refund_amount"], 0.000035)
+
+    def test_old_db_gets_the_refund_columns(self):
+        tmp = tempfile.mkdtemp()
+        import sqlite3
+        c = sqlite3.connect(os.path.join(tmp, "audit.db"))
+        c.execute("""CREATE TABLE history (rental_id TEXT PRIMARY KEY, rig_id TEXT, rig_name TEXT, start_unix INTEGER,
+            end_unix INTEGER, advertised_th REAL, mrr_average_th REAL, delivered_th REAL, pct REAL, verdict TEXT,
+            shares INTEGER, expected_shares REAL, paid TEXT, currency TEXT, address TEXT, worker TEXT,
+            finished INTEGER NOT NULL, source TEXT)""")
+        c.execute("INSERT INTO history (rental_id, finished) VALUES ('1', ?)", (int(time.time()),))
+        c.commit()
+        c.close()
+        au = audit_mod.Audit(tmp, {"audit": {"db": "audit.db"}})
+        row = au.history()["history"][0]
+        self.assertIn("refund_amount", row)
+        self.assertIsNone(row["refund_amount"])
+
+
 if __name__ == "__main__":
     unittest.main()
