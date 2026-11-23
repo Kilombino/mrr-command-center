@@ -378,8 +378,9 @@ class RefundTests(unittest.TestCase):
 
             def call(self, m, ep, params=None, body=None):
                 return TX
-        old = (dashboard.AUDIT[0], dashboard.mrr_api, dashboard.mrr_bot.save_state, dashboard._refunds_at[0])
+        old = (dashboard.AUDIT[0], dashboard.mrr_api, dashboard.mrr_bot.save_state, dashboard._refunds_at[0], dashboard.cfg)
         try:
+            dashboard.cfg = lambda: {}                  # no config.json needed
             dashboard.AUDIT[0] = au
             dashboard.mrr_api = lambda c: API()
             dashboard.mrr_bot.save_state = lambda st: None
@@ -387,7 +388,8 @@ class RefundTests(unittest.TestCase):
             self.assertEqual(dashboard.refresh_refunds(), 1)
             self.assertEqual(dashboard.refresh_refunds(), 0)        # not again within 10 min
         finally:
-            dashboard.AUDIT[0], dashboard.mrr_api, dashboard.mrr_bot.save_state, dashboard._refunds_at[0] = old
+            (dashboard.AUDIT[0], dashboard.mrr_api, dashboard.mrr_bot.save_state, dashboard._refunds_at[0],
+             dashboard.cfg) = old
         self.assertAlmostEqual(au.history()["history"][0]["refund_amount"], 0.000035)
 
     def test_old_db_gets_the_refund_columns(self):
