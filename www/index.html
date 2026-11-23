@@ -189,6 +189,9 @@ canvas.spark{width:150px;height:34px;display:block}
 .vface{display:flex;flex-direction:column;align-items:center;gap:2px}.vface .star{font-size:26px}
 .star.on{color:#ffd23f;text-shadow:0 0 10px rgba(255,210,63,.7)}.star:hover{box-shadow:none;color:#ffd23f}
 #t-market tr.fav{background:rgba(255,210,63,.05)}
+#t-market tr.black{background:rgba(255,59,92,.07)}#t-market tr.black td.rig a{color:var(--bad,#ff3b5c)}
+.tag.black{color:#ff3b5c;border-color:rgba(255,59,92,.55)}
+button.thumb{background:none;border:0;padding:0 2px;cursor:pointer;font-size:15px;opacity:.35;filter:grayscale(1)}button.thumb.on{opacity:1;filter:none}
 #t-market td.pc,#t-pyb td.pc{font-family:var(--mono);font-weight:700}
 #t-market td.pg,#t-pyb td.pg{color:#3cf59a;text-shadow:0 0 6px rgba(60,245,154,.35)} #t-market td.py,#t-pyb td.py{color:#ffd23f;text-shadow:0 0 6px rgba(255,210,63,.35)} #t-market td.pr,#t-pyb td.pr{color:#ff3b5c;text-shadow:0 0 6px rgba(255,59,92,.35)}
 #t-market tr.best{background:rgba(25,215,255,.06)} .tag.best{border-color:rgba(25,215,255,.6);color:var(--cyan);font-size:10px;padding:1px 5px}
@@ -409,7 +412,7 @@ body.nobot #hashcard{grid-column:span 12}
     <div class="mktsub coll" data-k="mkt-mrr">
       <h3 class="ctog"><span class="tag mrrb">MRR</span> MiningRigRentals <span class="muted" style="font:500 12px var(--ui);letter-spacing:0;text-transform:none">rigs usables, más baratos primero</span><span class="cnt" id="mkt-mrr-cnt"></span></h3>
       <div class="cbody">
-    <div class="mktctl"><label style="display:inline-flex;gap:5px;align-items:center"><input type="checkbox" id="only-fav" style="width:auto"> solo ⭐</label> presupuesto <input id="mkt-budget" type="number" step="0.0001" placeholder="auto"> <button id="btn-market" class="small">Actualizar</button></div>
+    <div class="mktctl"><label style="display:inline-flex;gap:5px;align-items:center"><input type="checkbox" id="only-fav" style="width:auto"> solo ⭐</label> <label style="display:inline-flex;gap:5px;align-items:center" title="Esconder los rigs de la lista negra (siguen en ella)"><input type="checkbox" id="hide-black" style="width:auto"> ocultar 👎</label> presupuesto <input id="mkt-budget" type="number" step="0.0001" placeholder="auto"> <button id="btn-market" class="small">Actualizar</button></div>
     <div class="row rw" style="margin-bottom:10px">
       <label style="font:600 10px var(--ui);color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">Address de cobro de lo que alquiles aquí</label>
       <input id="rent-addr" style="flex:1;min-width:260px" placeholder="vacío = la del perfil de pool de MRR" spellcheck="false">
@@ -418,7 +421,7 @@ body.nobot #hashcard{grid-column:span 12}
     <div class="muted rw" style="font-size:12.5px;margin:-4px 0 10px">Cada alquiler mina como <span class="mono">address.mrr&lt;número de alquiler&gt;</span>: un worker propio desde el primer minuto, para que el cotejo lo separe de los demás.</div>
     <div id="mkt-best" class="muted" style="margin-bottom:10px"></div>
     <div class="scroll"><table id="t-market"><thead><tr>
-      <th title="Favoritos: se marcan solos cuando un alquiler termina cumpliendo; también a mano">⭐</th><th>Rig</th><th>Región</th><th title="Hashrate anunciado">Hashrate</th><th title="Hashrate que ha dado el rig en las últimas 24 h según MRR; la línea discontinua es lo anunciado">Últimas 24 h</th><th title="Rig Performance Index de MRR: cómo ha cumplido el rig a lo largo de sus alquileres (100 = da lo anunciado)">RPI</th><th title="Media de lo que ha dado en las últimas 24 h frente a lo anunciado (de la gráfica)">Perf 24 h</th><th title="Lo que ha dado en los últimos 30 min frente a lo anunciado">Perf 30 min</th><th id="mkt-unit-h" title="Precio por TH y día">sats/TH/día</th><th id="mkt-hour-h" title="Lo que cuesta cada hora de este rig, con la comisión de MRR">sats/h (con fee)</th><th>Horas min–max</th><th></th>
+      <th title="⭐ Favoritos: se marcan solos cuando un alquiler termina cumpliendo. 👎 Lista negra: entran solos con carita triste al terminar o con ticket abierto. Las dos, también a mano">⭐ 👎</th><th>Rig</th><th>Región</th><th title="Hashrate anunciado">Hashrate</th><th title="Hashrate que ha dado el rig en las últimas 24 h según MRR; la línea discontinua es lo anunciado">Últimas 24 h</th><th title="Rig Performance Index de MRR: cómo ha cumplido el rig a lo largo de sus alquileres (100 = da lo anunciado)">RPI</th><th title="Media de lo que ha dado en las últimas 24 h frente a lo anunciado (de la gráfica)">Perf 24 h</th><th title="Lo que ha dado en los últimos 30 min frente a lo anunciado">Perf 30 min</th><th id="mkt-unit-h" title="Precio por TH y día">sats/TH/día</th><th id="mkt-hour-h" title="Lo que cuesta cada hora de este rig, con la comisión de MRR">sats/h (con fee)</th><th>Horas min–max</th><th></th>
     </tr></thead><tbody></tbody></table></div>
       </div>
     </div>
@@ -646,15 +649,16 @@ async function loadMarket(){
     const C=L().coin;
     $('#mkt-best').innerHTML = m.best ? `Saldo para alquilar: <b>${fmtBtc(m.budget)} ${esc(C)}</b>. Lo que más TH·h da ahora: <b>${esc(m.best.name)}</b> ${m.best.adv_th.toFixed(2)} TH × ${m.best.hours.toFixed(1)} h por ${fmtBtc(m.best.cost)} ${esc(C)} (fee incluida)` : `Con ${fmtBtc(m.budget)} ${esc(C)} no alcanza el mínimo de ningún rig usable.`;
     const favs=new Set(((hist&&hist.favorites)||[]).map(f=>String(f.rig_id))), onlyFav=$('#only-fav').checked;
-    const rowHtml = r=>`<tr class="${r.reason?'rejected ':''}${r.affordable?'':'muted'} ${favs.has(String(r.id))?'fav':''} ${m.best&&String(m.best.rig)===String(r.id)?'best':''}">
-      <td><button class="star ${favs.has(String(r.id))?'on':''}" data-fav="${esc(r.id)}" data-name="${esc(r.name)}" title="${favs.has(String(r.id))?'Quitar de favoritos':'Marcar como favorito'}">${favs.has(String(r.id))?'★':'☆'}</button></td>
-      <td class="rig"><a href="https://www.miningrigrentals.com/rigs/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.id)}</a>${m.best&&String(m.best.rig)===String(r.id)?' <span class="tag best" title="El que más TH·h da con tu saldo">más TH·h</span>':''}${r.reason?` <span class="tag rej" title="Descartado por el filtro; puedes alquilarlo igual">${esc(r.reason)}</span>`:''}<small title="${esc(r.name)}">${esc(r.name)}</small></td><td>${flag(r.region)}</td>
+    const blk=blackMap(), hideBlack=$('#hide-black').checked;
+    const rowHtml = r=>{ const bl=blk.get(String(r.id)); return `<tr class="${r.reason?'rejected ':''}${r.affordable?'':'muted'} ${favs.has(String(r.id))?'fav':''} ${bl?'black':''} ${m.best&&String(m.best.rig)===String(r.id)?'best':''}">
+      <td style="white-space:nowrap"><button class="star ${favs.has(String(r.id))?'on':''}" data-fav="${esc(r.id)}" data-name="${esc(r.name)}" title="${favs.has(String(r.id))?'Quitar de favoritos':'Marcar como favorito'}">${favs.has(String(r.id))?'★':'☆'}</button><button class="thumb ${bl?'on':''}" data-black="${esc(r.id)}" data-name="${esc(r.name)}" title="${bl?'Quitar de la lista negra':'Poner en la lista negra'}">👎</button></td>
+      <td class="rig"><a href="https://www.miningrigrentals.com/rigs/${esc(r.id)}" target="_blank" rel="noopener">${esc(r.id)}</a>${bl?` <span class="tag black" title="${esc(blackWhy(bl))}">👎 lista negra</span>`:''}${m.best&&String(m.best.rig)===String(r.id)?' <span class="tag best" title="El que más TH·h da con tu saldo">más TH·h</span>':''}${r.reason?` <span class="tag rej" title="Descartado por el filtro; puedes alquilarlo igual">${esc(r.reason)}</span>`:''}<small title="${esc(r.name)}">${esc(r.name)}</small></td><td>${flag(r.region)}</td>
       <td class="th1 ${r.adv_th>=50?'xl':r.adv_th>=15?'l':r.adv_th>=5?'m':'s'}">${fmtTh(r.adv_th)}</td>
       <td><canvas class="spark" data-rig="${esc(r.id)}" data-adv="${r.adv_th}"></canvas></td>
       <td class="pc ${pcls(r.rpi/100)}">${r.rpi.toFixed(0)}</td><td class="pc p24" id="p24-${esc(r.id)}">…</td><td class="pc ${pcls(r.perf)}">${r.perf!=null?(r.perf*100).toFixed(0)+'%':'–'}</td>
       <td class="mono" title="${esc(altOf(r.price_th_day))}">${units(r.price_th_day)}</td><td class="mono" title="${esc(altOf(r.hour_cost_total))}">${units(r.hour_cost_total)}</td><td>${r.minh}–${r.maxh} h</td>
-      <td><div class="row" style="flex-wrap:nowrap"><input type="number" step="1" value="${Math.max(r.minh, Math.floor(r.afford_h))}" style="width:70px" id="rh-${esc(r.id)}"><button class="small primary" data-rent="${esc(r.id)}" data-name="${esc(r.name)}" data-hc="${r.hour_cost_total}" data-th="${r.adv_th}">Rentar</button></div></td></tr>`;
-    const keep = r=>!onlyFav||favs.has(String(r.id));
+      <td><div class="row" style="flex-wrap:nowrap"><input type="number" step="1" value="${Math.max(r.minh, Math.floor(r.afford_h))}" style="width:70px" id="rh-${esc(r.id)}"><button class="small primary" data-rent="${esc(r.id)}" data-name="${esc(r.name)}" data-hc="${r.hour_cost_total}" data-th="${r.adv_th}"${bl?' data-black="1"':''}>Rentar</button></div></td></tr>`; };
+    const keep = r=>(!onlyFav||favs.has(String(r.id))) && !(hideBlack&&blk.has(String(r.id)));
     const rej=(m.rejected||[]).filter(keep);
     $('#t-market tbody').innerHTML = m.rigs.filter(keep).map(rowHtml).join('')
       + (rej.length ? `<tr class="sep"><td colspan="13">Descartados por los filtros (${rej.length}): se pueden alquilar igual, mira el motivo</td></tr>` + rej.map(rowHtml).join('') : '');
@@ -663,10 +667,13 @@ async function loadMarket(){
     $('#mkt-info').textContent = m.rigs.length ? 'MRR: '+m.rigs.length+' rigs' : '';
     $('#t-market tbody').querySelectorAll('button[data-fav]').forEach(b=>b.onclick=async()=>{
       try{ await api('/api/favorite',{rig:b.dataset.fav,name:b.dataset.name,on:!b.classList.contains('on')}); await loadHistory(); loadMarket(); }catch(e){ toast(e.message,true); } });
+    $('#t-market tbody').querySelectorAll('button[data-black]').forEach(b=>b.onclick=async()=>{
+      try{ await api('/api/blacklist',{rig:b.dataset.black,name:b.dataset.name,on:!b.classList.contains('on')}); await loadHistory(); loadMarket(); }catch(e){ toast(e.message,true); } });
     $('#t-market tbody').querySelectorAll('button[data-rent]').forEach(b=>b.onclick=async()=>{
       const id=b.dataset.rent, hours=parseFloat($('#rh-'+id).value), cost=hours*parseFloat(b.dataset.hc);
+      const bl=blackMap().get(String(id));
       const addr=state?.rent_address;
-      if(!await confirmDlg(`<b>Alquilar rig ${id} "${esc(b.dataset.name)}"</b><p>${parseFloat(b.dataset.th).toFixed(2)} TH durante <b>${hours} h</b> = ${(hours*parseFloat(b.dataset.th)).toFixed(0)} TH·h<br>Coste estimado: <b>${fmtBtc(cost)} ${esc(L().coin)}</b> (fee incluida), del saldo confirmado de MRR.</p>
+      if(!await confirmDlg(`<b>Alquilar rig ${id} "${esc(b.dataset.name)}"</b>${bl?`<p style="color:#ff3b5c">👎 Está en tu lista negra: ${esc(blackWhy(bl))}.</p>`:''}<p>${parseFloat(b.dataset.th).toFixed(2)} TH durante <b>${hours} h</b> = ${(hours*parseFloat(b.dataset.th)).toFixed(0)} TH·h<br>Coste estimado: <b>${fmtBtc(cost)} ${esc(L().coin)}</b> (fee incluida), del saldo confirmado de MRR.</p>
         <p>Mina a tu gateway (perfil ${esc(state?.profile_id)}) como <span class="mono">${addr?esc(addr):'address del perfil'}.mrr&lt;número de alquiler&gt;</span>.</p><p class="muted">Solo se alquila si confirmas. No hay nada automático.</p>`)) return;
       try{ const r=await api('/api/rent',{rig:id,hours}); toast(r.summary); refresh(true); loadMarket(); loadAudit(); }catch(e){ toast(e.message,true); }
     });
@@ -713,6 +720,7 @@ $('#cfg').onsubmit = async ev=>{ ev.preventDefault(); const fd=new FormData(ev.t
   try{ const r=await api('/api/config',body); toast('Guardado: '+Object.keys(r.applied).join(', ')); delete $('#cfg').dataset.dirty; refresh(); }catch(e){ toast(e.message,true);} };
 $('#btn-market').onclick = loadMarket;
 $('#only-fav').onchange = loadMarket;
+$('#hide-black').onchange = loadMarket;
 $('#rent-addr').oninput = ()=>{ $('#rent-addr').dataset.dirty='1'; };
 $('#btn-addr').onclick = async()=>{ const v=$('#rent-addr').value.trim();
   if(!await confirmDlg(v?`<b>Fijar la address de cobro</b><p class="mono" style="word-break:break-all">${esc(v)}</p><p class="muted">Los alquileres que hagas desde aquí minarán a ella. Los que ya están en marcha no cambian.</p>`:'<b>Quitar la address fija</b><p class="muted">Los alquileres nuevos usarán la del perfil de pool de MRR.</p>')) return;
@@ -882,6 +890,15 @@ function drawChart2(){
   $('#chart2-legend').innerHTML=stack.slice().reverse().map(s=>`<span><i style="display:inline-block;width:12px;height:12px;background:${s.col};box-shadow:0 0 8px ${s.col};vertical-align:-2px;margin-right:6px"></i>${esc(s.name||s.w)} <span class="muted">${(S.series[s.w][n-1]||0).toFixed(1)} / ${s.th.toFixed(1)}</span></span>`).join('');
 }
 var hist=null;
+// Blacklist: rigs that gave less than paid at the end (sad face) or got a ticket; also by hand.
+function blackMap(){ return new Map(((hist&&hist.blacklist)||[]).map(b=>[String(b.rig_id), b])); }
+function blackWhy(b){
+  const r=(b.reasons||'').split(',').filter(Boolean), out=[];
+  if(r.includes('sad')) out.push('carita triste'+(b.pct!=null?' (dio el '+Math.round(b.pct)+' %)':'')); 
+  if(r.includes('ticket')) out.push('ticket abierto');
+  if(r.includes('manual')) out.push('marcado a mano');
+  return out.join(' · ')+(b.rental_id?' · alquiler '+b.rental_id:'');
+}
 function favSet(){ return new Set(((hist&&hist.favorites)||[]).map(f=>String(f.rig_id))); }
 async function loadHistory(){
   try{ hist=await api('/api/history'); }catch(e){ return; }
@@ -892,6 +909,12 @@ async function loadHistory(){
   $('#favs').innerHTML = (hist.favorites||[]).length ? '<span class="muted" style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase">Favoritos</span> '+hist.favorites.map(f=>
     `<a class="tag" style="margin:2px 4px;color:var(--warn);border-color:rgba(255,210,63,.5)" href="https://www.miningrigrentals.com/rigs/${esc(f.rig_id)}" target="_blank" rel="noopener" title="${f.rentals?f.rentals+' alquiler(es) cumplidos, media '+Math.round(f.avg_pct)+'%':'marcado a mano'}">★ ${esc(f.rig_name||f.rig_id)}</a>`).join('')
     : '<span class="muted">Aún no hay favoritos: un rig entra solo cuando un alquiler suyo termina cumpliendo, o marcándolo con ☆ en el mercado.</span>';
+  const BL=hist.blacklist||[];
+  $('#favs').innerHTML += '<div style="margin-top:6px"><span class="muted" style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase">Lista negra</span> '+(BL.length ? BL.map(b=>
+    `<span class="tag black" style="margin:2px 4px" title="${esc(blackWhy(b))}"><a href="https://www.miningrigrentals.com/rigs/${esc(b.rig_id)}" target="_blank" rel="noopener" style="color:inherit">👎 ${esc(b.rig_name||b.rig_id)}</a> <button class="thumb on" data-unblack="${esc(b.rig_id)}" title="Quitar de la lista negra" style="font-size:12px">✕</button></span>`).join('')
+    : `<span class="muted">Vacía: entra solo un rig cuyo alquiler termina con carita triste (menos del ${hist.blacklist_pct||95} % de lo pagado) o al que le abres ticket; o a mano con 👎 en el mercado.</span>`)+'</div>';
+  $('#favs').querySelectorAll('button[data-unblack]').forEach(b=>b.onclick=async()=>{
+    try{ await api('/api/blacklist',{rig:b.dataset.unblack,on:false}); await loadHistory(); loadMarket(); }catch(e){ toast(e.message,true); } });
   const fmtD=s=>new Date(s*1000).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
   $('#t-hist tbody').innerHTML = H.length ? H.map(h=>{ const isP=h.source==='pyblock'||h.source==='p2hash', isH=h.source==='p2hash';
     const ts=(state&&state.autoticket&&state.autoticket.settings)||{}, sg=ts.sigma||3;

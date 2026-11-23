@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.4 (23 Nov 2026)
+
+- **Blacklist in the market.** A rig goes on it by itself when a rental of it ends with the
+  sad face (less than `blacklist_pct`, 95 %, of what was paid reached the gateway; mixed
+  workers don't count) or when a ticket is opened for it: marked by hand, from the ticket
+  dialog, or the automatic end-of-rental notice (the mid-rental message to the owner does
+  not count). The market keeps showing it, in red with a "lista negra" tag that says why,
+  and asks again before renting it; "ocultar 👎" hides them. 👎 next to the ⭐ puts a rig on
+  the list or takes it off by hand, and the finished rentals section lists them with ✕.
+  Taken off, a rig stays off until a new bad rental or ticket. The first start fills the
+  list from the history already in `audit.db`.
+
 ## 1.4.3 (23 Nov 2026)
 
 - **Refund amount in the history.** When MRR refunds a rental, the finished-rentals table

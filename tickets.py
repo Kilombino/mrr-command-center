@@ -321,6 +321,7 @@ def check(audit, rentals, api_factory, notify, cfg, log=print, now=None):
                 continue
             sent, err = (_post(api_factory, h["rental_id"], text) if sw["message_owner"] else (None, None))
             audit.ticket_update(h["rental_id"], sent, err)
+            audit.blacklist_ticket(h["rental_id"], now)     # the end-of-rental notice counts as a ticket
             log(f"[autoticket] rental {h['rental_id']} ended at {h.get('pct') or 0:.1f}% of paid: notice sent,"
                 f" owner message: {'sent' if sent else err or 'off'}")
             try:
