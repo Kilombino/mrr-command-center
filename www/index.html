@@ -128,6 +128,14 @@ button.p2hbtn:hover{box-shadow:0 0 18px rgba(255,122,217,.6);color:#fff}
 .tkbtn{border-color:rgba(255,59,92,.6)!important;color:var(--bad)!important}
 .delbtn{background:none;border:0;clip-path:none;padding:0 6px;color:#55658a;cursor:pointer;font-size:15px}.delbtn:hover{color:var(--bad);box-shadow:none}
 #tk-text{width:100%;min-height:210px;box-sizing:border-box;font:12px var(--mono);background:#080c15;color:var(--text);border:1px solid var(--line2);padding:8px}
+.gwview{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font:600 12px var(--ui);letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+.gwview button{font:600 12px var(--ui);letter-spacing:.8px;text-transform:uppercase;padding:5px 12px}
+.gwview button.on{border-color:var(--accent);color:var(--accent);box-shadow:0 0 10px rgba(247,147,26,.35)}
+.gwrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:8px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
+.gwrow .gn{font:700 13px var(--ui);min-width:120px}
+.gwform{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px;font-size:12.5px}
+.gwform input{width:auto;flex:1 1 160px;min-width:120px;font:500 12px var(--mono);padding:5px 8px}
+.tag.gwt{color:var(--cyan);border-color:rgba(25,215,255,.4)}
 .pybadd{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px;font-size:12.5px}
 .pybadd input{width:auto;flex:1 1 220px;min-width:160px;font:500 12px var(--mono);padding:5px 8px}
 .pybadd input.w{flex:0 1 170px}
@@ -297,6 +305,7 @@ body.nobot #hashcard{grid-column:span 12}
 </header>
 
 <main>
+  <div class="gwview" id="gwview" style="display:none"></div>
   <section class="kpis">
     <div class="kpi accent"><div class="l">Hashrate gateway</div><div class="v" id="k-hash">–</div><div class="s" id="k-hash-s">suma de clientes suscritos</div></div>
     <div class="kpi"><div class="l">ASICs conectados</div><div class="v" id="k-asics">–</div><div class="s" id="k-asics-s"></div></div>
@@ -383,6 +392,23 @@ body.nobot #hashcard{grid-column:span 12}
     <div class="cbody">
     <div id="favs" style="margin-bottom:10px"></div>
     <div class="scroll"><table id="t-hist"><thead><tr><th></th><th>Rig</th><th>Terminó</th><th>Duró</th><th title="Hashrate contratado">Pagado</th><th>MRR dijo</th><th title="Lo que llegó al gateway en todo el alquiler">Recibido</th><th>Veredicto</th><th>Coste</th><th title="Lo que MRR te ha devuelto (Credit/Refund en tus movimientos de MRR) y qué parte es de lo que pagaste">Reembolso</th><th title="Si se abrió ticket: desde el botón del panel, marcado a mano (por ejemplo si lo abriste en la web de MRR) o aviso del ticket automático. MRR no tiene API de tickets: es un registro del panel">Ticket</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="card span12 coll ro-hide" data-k="gws" id="gw-card"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2 class="ctog">Tus gateways <span class="right muted" id="gwm-info" style="font:500 12px var(--mono);letter-spacing:0;text-transform:none"></span></h2>
+    <div class="cbody">
+    <div class="muted" style="font-size:12px;margin-bottom:6px">Cada gateway DATUM que tengas (otro DATUM, o cada pool de un PATUM de PyBLØCK: stratum 23334, 23335…, página de estado 7152, 7153…). El panel lo reconoce en cada alquiler por el puerto al que apunta su perfil de pool de MRR, y arriba puedes ver cada uno por separado. El principal es el que el panel ya lee; los demás necesitan su página de estado (la de su DATUM) para ver su hashrate y sus ASICs.</div>
+    <div id="gwm-list"></div>
+    <div class="gwform">
+      <input id="gwm-name" autocomplete="off" spellcheck="false" placeholder="nombre (p. ej. PATUM)" style="flex:0 1 140px">
+      <input id="gwm-hp" autocomplete="off" spellcheck="false" placeholder="stratum público host:puerto">
+      <input id="gwm-url" autocomplete="off" spellcheck="false" placeholder="página de estado http://ip:7153 (opcional)">
+      <input id="gwm-user" autocomplete="off" spellcheck="false" placeholder="usuario (admin)" style="flex:0 1 110px">
+      <input id="gwm-pass" type="password" autocomplete="new-password" placeholder="contraseña de la página" style="flex:0 1 160px">
+      <button class="small primary" id="gwm-save">Guardar</button>
+      <span class="muted" style="flex-basis:100%;font-size:11.5px">Guardar con un stratum que ya está guardado cambia solo ese (su nombre y su página; la contraseña vacía deja la que tenía). La página de estado del principal es la que el panel ya usa y no se cambia aquí.</span>
+    </div>
     </div>
   </section>
 
@@ -555,6 +581,79 @@ async function api(path, body){
   return j;
 }
 
+
+// ---------------------------------------------------------------- several gateways (1.6.0)
+// The overview brings the main gateway ("gateway", "history") and the others (gw_views by key).
+// The view chosen at the top filters rentals, chart, ASICs and the audit to one gateway.
+let RAW=null, VIEW=(()=>{ try{ return localStorage.getItem('mcc.view')||'all'; }catch(e){ return 'all'; } })();
+function gwList(){ return (RAW&&RAW.gateways)||[]; }
+function multiGw(){ return gwList().length>1; }
+function viewKey(){ if(!multiGw()) return 'all'; return (VIEW==='all'||gwList().some(g=>g.key===VIEW))?VIEW:'all'; }
+function gwById(k){ return gwList().find(g=>g.key===k); }
+function gwName(k){ const g=gwById(k); return g ? (g.name||g.hostport)+(g.port?' :'+g.port:'') : ''; }
+function mergeGw(parts){
+  return {ok:true, status:parts[0].status, clients:[].concat(...parts.map(p=>p.clients||[])),
+          total_th:parts.reduce((s,p)=>s+(p.total_th||0),0), subscribed:parts.reduce((s,p)=>s+(p.subscribed||0),0),
+          foreign:parts.reduce((s,p)=>s+(p.foreign||0),0), at:Math.max(...parts.map(p=>p.at||0))};
+}
+function sumHist(main, others){
+  // on the main gateway's samples; another gateway counts with its last sample up to then
+  const idx=others.map(()=>0), last=others.map(()=>null);
+  return (main||[]).map(p=>{ let th=p.th, cl=p.clients;
+    others.forEach((h,i)=>{ while(idx[i]<h.length && h[idx[i]].t<=p.t){ last[i]=h[idx[i]]; idx[i]++; }
+      if(last[i] && p.t-last[i].t<120){ th+=last[i].th; cl+=last[i].clients; } });
+    return {t:p.t, th, clients:cl}; });
+}
+function applyView(d){
+  const k=viewKey(); if(k==='all' && !multiGw()) return d;
+  const v=Object.assign({}, d), xs=d.gw_views||{};
+  if(k==='all'){
+    const parts=[d.gateway, ...Object.values(xs).map(x=>x.gateway)].filter(Boolean);
+    v.gateway=parts.length?mergeGw(parts):null;
+    v.history=sumHist(d.history, Object.values(xs).map(x=>x.history||[]));
+  } else if(k!=='main'){
+    const x=xs[k]||{}; v.gateway=x.gateway||null; v.gateway_error=x.gateway?null:(x.error||'sin datos todavía'); v.history=x.history||[];
+  }
+  if(d.mrr && k!=='all') v.mrr=Object.assign({}, d.mrr, {rentals:(d.mrr.rentals||[]).filter(r=>r.gw===k)});
+  return v;
+}
+function renderGwBar(){
+  const bar=$('#gwview'); if(!multiGw()){ bar.style.display='none'; return; }
+  const k=viewKey(), l=gwList();
+  bar.style.display='';
+  bar.innerHTML='<span>ver</span>'+[{key:'all',name:'Todos'}].concat(l).map(g=>{
+    const lab=g.key==='all'?'Todos':esc(g.name||g.hostport)+(g.port?' :'+g.port:'');
+    const th=g.key==='all'?l.reduce((s,x)=>s+(x.total_th||0),0):g.total_th;
+    return `<button class="small ${g.key===k?'on':''}" data-gwv="${esc(g.key)}" title="${g.key==='all'?'Todos tus gateways juntos':esc(g.hostport||'')}">${lab}${th!=null?' <span class="muted">'+fmtTh(th)+'</span>':''}${g.key!=='all'&&g.has_api===false&&!g.primary?' <span class="muted">· sin página</span>':''}</button>`; }).join('');
+  bar.querySelectorAll('button[data-gwv]').forEach(b=>b.onclick=()=>{ VIEW=b.dataset.gwv; try{ localStorage.setItem('mcc.view', VIEW); }catch(e){}
+    render(applyView(RAW)); renderGwBar(); renderAudit(); });
+}
+function gwTag(k){ return (multiGw() && k) ? `<span class="tag gwt" title="gateway">${esc(gwName(k))}</span>` : ''; }
+function renderGwManager(){
+  const l=gwList(), act=(RAW&&RAW.pyblock&&RAW.pyblock.gateway)||'';
+  $('#gwm-info').textContent = l.length+' gateway'+(l.length>1?'s':'');
+  $('#gwm-list').innerHTML = l.map(g=>{
+    const page = g.primary ? 'página: la que el panel ya lee' : g.has_api ? 'página <span class="mono">'+esc(g.api_url)+'</span>' : '<span class="warn">sin página de estado</span>';
+    const st = (g.primary||g.has_api) ? (g.ok ? '<span class="ok">✓ '+fmtTh(g.total_th||0)+' · '+(g.subscribed||0)+' ASICs</span>' : '<span class="bad">✗ '+esc(g.error||'sin datos todavía')+'</span>') : '';
+    return `<div class="gwrow"><span class="gn">${g.primary?'● ':''}${esc(g.name||'')}</span>
+      <span>stratum <span class="mono">${g.hostport?esc(g.hostport):'<span class="muted">sin guardar</span>'}</span></span><span>${page}</span><span>${st}</span>
+      ${g.hostport&&g.hostport===act?'<span class="tag">pedidos PyBLØCK/P2Hash</span>':''}
+      <span style="margin-left:auto;display:flex;gap:6px">${g.hostport?`<button class="small" data-gwedit="${esc(g.key)}">Editar</button>`:''}
+      ${g.hostport&&!g.primary?`<button class="small danger" data-gwdel="${esc(g.hostport)}">Quitar</button>`:''}</span></div>`; }).join('');
+  $('#gwm-list').querySelectorAll('button[data-gwedit]').forEach(b=>b.onclick=()=>{ const g=gwById(b.dataset.gwedit);
+    $('#gwm-name').value=g.name||''; $('#gwm-hp').value=g.hostport; $('#gwm-url').value=g.api_url||''; $('#gwm-user').value=g.api_user||'';
+    $('#gwm-pass').value=''; ['#gwm-url','#gwm-user','#gwm-pass'].forEach(id=>$(id).disabled=!!g.primary); $('#gwm-name').focus(); });
+  $('#gwm-list').querySelectorAll('button[data-gwdel]').forEach(b=>b.onclick=async()=>{
+    if(!await confirmDlg('<b>Quitar el gateway</b><p class="mono">'+esc(b.dataset.gwdel)+'</p><p class="muted">Sus alquileres siguen en MRR; solo deja de verse aparte.</p>')) return;
+    try{ await api('/api/gateways',{action:'remove', gateway:b.dataset.gwdel}); toast('Quitado'); refresh(true); }catch(e){ toast(e.message,true); } });
+}
+$('#gwm-save').onclick=async()=>{
+  const hp=$('#gwm-hp').value.trim(); if(!hp) return toast('Escribe el stratum host:puerto',true);
+  const body={action:'add', gateway:hp, name:$('#gwm-name').value.trim()};
+  if(!$('#gwm-url').disabled){ body.api_url=$('#gwm-url').value.trim(); body.api_user=$('#gwm-user').value.trim(); body.api_password=$('#gwm-pass').value; }
+  try{ await api('/api/gateways', body); toast('Guardado: '+hp); ['#gwm-name','#gwm-hp','#gwm-url','#gwm-user','#gwm-pass'].forEach(id=>{ $(id).value=''; $(id).disabled=false; }); refresh(true); }
+  catch(e){ toast(e.message,true); } };
+
 function pill(id, text, cls){ const e=$(id); e.innerHTML=text; e.className='pill '+(cls||''); }
 
 function render(d){
@@ -600,7 +699,7 @@ function render(d){
   $('#actions').textContent = (bot.actions||[]).slice().reverse().map(a=>a.at+'  '+(a.ok?'✓':'✗')+'  '+a.summary).join('\n') || 'sin acciones todavía';
   // config form (only fill untouched fields)
   const f=$('#cfg'); if(!f.dataset.dirty){ for(const [k,v] of Object.entries(d.config)){ const el=f.elements[k]; if(!el) continue; el.value = Array.isArray(v)? v.join(', ') : (typeof v==='boolean'? String(v) : v); } }
-  renderClients(gw, d.own_addresses||[]);
+  renderClients(gw, d.own_addresses||[], d.gateway_error);
   renderRentals(mrr);
   renderPyb(d.pyblock);
   renderP2h(d.p2hash);
@@ -614,16 +713,16 @@ function render(d){
   if(!render.labelled){ render.labelled=1; if(typeof hist!=='undefined' && hist) loadHistory(); }   // the history may have been drawn before the labels (coin name) arrived
 }
 
-function renderClients(gw, own){
-  const tb=$('#t-clients tbody'); if(!gw){ tb.innerHTML='<tr><td colspan="10" class="muted">gateway no disponible</td></tr>'; return; }
+function renderClients(gw, own, err){
+  const tb=$('#t-clients tbody'); if(!gw){ tb.innerHTML='<tr><td colspan="10" class="muted">gateway no disponible'+(err?': '+esc(err):'')+'</td></tr>'; $('#asics-info').textContent=''; return; }
   const maxTh = Math.max(0.001, ...gw.clients.map(c=>c.hashrate_th||0));
   const rows = gw.clients.map(c=>{
-    if(!c.subscribed) return `<tr class="muted"><td class="mono">${esc(c.ip)}<br><small>${esc(c.host)}</small></td><td colspan="8"><span class="tag idle" title="Abrió el socket pero nunca mandó mining.subscribe: suele ser un escáner o sonda, no un ASIC minando">sin suscribir</span> ${esc(c.label)}</td><td>${c.kick?`<button class="small danger" data-kick='${JSON.stringify(c.kick)}'>Kick</button>`:''}</td></tr>`;
+    if(!c.subscribed) return `<tr class="muted"><td class="mono">${esc(c.ip)}<br><small>${esc(c.host)}</small></td><td colspan="8"><span class="tag idle" title="Abrió el socket pero nunca mandó mining.subscribe: suele ser un escáner o sonda, no un ASIC minando">sin suscribir</span> ${esc(c.label)}</td><td>${c.kick?`<button class="small danger" data-kick='${esc(JSON.stringify(Object.assign({gw:c.gw||'main'},c.kick)))}'>Kick</button>`:''}</td></tr>`;
     const ownTag = c.own===true ? '<span class="tag own">propia</span>' : c.own===false ? '<span class="tag foreign">AJENA</span>' : '';
     const lbl = c.label ? `<span class="tag ${c.label==='MRR proxy'?'mrr':c.label==='PyBLOCK rental'?'pyb':c.label==='P2Hash rental'?'p2h':''}">${esc(c.label)}</span>` : '';
     const pct = Math.round((c.hashrate_th||0)/maxTh*100);
     return `<tr>
-      <td class="mono">${esc(c.ip)}<br><small class="muted">${esc(c.host)}</small> ${lbl}</td>
+      <td class="mono">${esc(c.ip)}<br><small class="muted">${esc(c.host)}</small> ${lbl} ${viewKey()==='all'?gwTag(c.gw):''}</td>
       <td class="mono" title="${esc(c.address)}">${esc(c.address.slice(0,10))}…${esc(c.address.slice(-6))} ${ownTag}</td>
       <td>${esc(c.worker)||'<span class="muted">–</span>'}</td>
       <td><b>${esc(c.hashrate)}</b> <small class="muted">(${c.hashrate_age_s!=null?c.hashrate_age_s.toFixed(0)+'s':''})</small><span class="hbar"><i style="width:${pct}%"></i></span></td>
@@ -632,7 +731,7 @@ function renderClients(gw, own){
       <td>${esc(c.last_accepted)}</td>
       <td class="mono" title="hilo/conexión del gateway ${esc(c.tid_cid)}">${esc(c.session)} <small class="muted">${c.subbed_s!=null?fmtH(c.subbed_s/3600):''}</small></td>
       <td>${esc(c.useragent)} <small class="muted">${esc(c.coinbase)}</small></td>
-      <td>${c.kick?`<button class="small danger" data-kick='${JSON.stringify(c.kick)}'>Kick</button>`:''}</td></tr>`;
+      <td>${c.kick?`<button class="small danger" data-kick='${esc(JSON.stringify(Object.assign({gw:c.gw||'main'},c.kick)))}'>Kick</button>`:''}</td></tr>`;
   });
   tb.innerHTML = rows.join('') || '<tr><td colspan="10" class="muted">ningún cliente conectado</td></tr>';
   $('#asics-info').textContent = gw.subscribed+' suscritos · '+fmtTh(gw.total_th)+' · '+new Date(gw.at*1000).toLocaleTimeString();
@@ -644,9 +743,9 @@ function renderClients(gw, own){
 
 function renderRentals(mrr){
   const el=$('#rentals'); if(!mrr){ el.innerHTML='<div class="muted">MRR no disponible</div>'; return; }
-  if(!mrr.rentals.length){ el.innerHTML='<div class="muted">sin rentas activas. Deposita saldo y el bot abrirá una en la siguiente pasada.</div>'; return; }
+  if(!mrr.rentals.length){ el.innerHTML = viewKey()!=='all' ? '<div class="muted">nada alquilado a '+esc(gwName(viewKey()))+' ahora mismo</div>' : '<div class="muted">sin rentas activas. Deposita saldo y el bot abrirá una en la siguiente pasada.</div>'; return; }
   el.innerHTML = mrr.rentals.map(r=>`<div class="rental">
-    <div class="t"><b>${esc(r.rig_name)}</b> <span class="muted">rig ${esc(r.rig_id)} · ${esc(r.region)} · RPI ${esc(r.rpi)}</span> <span style="margin-left:auto" class="mono">#${esc(r.id)}</span></div>
+    <div class="t"><b>${esc(r.rig_name)}</b> <span class="muted">rig ${esc(r.rig_id)} · ${esc(r.region)} · RPI ${esc(r.rpi)}</span> ${gwTag(r.gw)}${r.pool?' <span class="muted mono" title="adonde apunta su pool en MRR">→ '+esc(r.pool)+'</span>':''} <span style="margin-left:auto" class="mono">#${esc(r.id)}</span></div>
     <div class="row" style="margin:8px 0"><span>anunciado <b>${esc(r.advertised)}</b></span><span>media MRR <b class="${(parseFloat(r.average_pct)||0)<80?'warn':'ok'}">${esc(r.average||'–')} (${esc(r.average_pct||'0')}%)</b></span><span>pagado <b>${esc(r.paid)} ${esc(r.currency)}</b></span></div>
     <div class="bar"><i style="width:${(r.progress*100).toFixed(1)}%"></i></div>
     <div class="row muted mono" style="font-size:11.5px;margin-top:6px"><span>${esc(r.start)} → ${esc(r.end)}</span><span style="margin-left:auto"><b class="${r.left_h<2?'warn':''}">${fmtH(r.left_h)} restantes</b> de ${fmtH(r.length_h)}</span></div>
@@ -753,7 +852,7 @@ function drawSpark(cv, th, adv){
 
 async function loadLogs(){ try{ const l=await api('/api/log'); $('#log-bot').textContent=l.bot.join('\n')||'(vacío)'; $('#log-gw').textContent=l.gateway.join('\n')||'(vacío)'; const a=$('#log-bot'); a.scrollTop=a.scrollHeight; const g=$('#log-gw'); g.scrollTop=g.scrollHeight; }catch(e){ toast(e.message,true);} }
 
-async function refresh(force){ try{ render(await api('/api/overview'+(force?'?force=1':''))); }catch(e){ pill('#p-upd','error: '+esc(e.message),'bad'); } }
+async function refresh(force){ try{ RAW=await api('/api/overview'+(force?'?force=1':'')); render(applyView(RAW)); renderGwBar(); renderGwManager(); }catch(e){ pill('#p-upd','error: '+esc(e.message),'bad'); } }
 
 $('#sw-timer').onclick = async()=>{ const on=!state?.bot?.timer_enabled;
   if(on && !await confirmDlg('<b>Encender el bot</b><p>Cada 15 min gastará el saldo confirmado de MRR (hasta max_spend_per_run_btc por pasada) rentando o extendiendo rigs.</p>')) return;
@@ -889,10 +988,11 @@ function runway(rs){
   return `<div class="runway">Te queda hashrate alquilado para <b>${fmtLeft(last.left_h)}</b> <span class="muted">(hasta ${at(last.left_h)}, cuando acaba ${esc(last.rig_name||'')})</span>
     <div class="muted" style="margin-top:4px">El próximo en terminar: <b style="font-size:14px">${esc(next.rig_name||'')}</b> en ${fmtLeft(next.left_h)} (−${next.advertised_th.toFixed(1)} TH/s)</div></div>`;
 }
+function auditRs(){ const k=viewKey(), rs=(audit&&audit.rentals)||[]; return k==='all'?rs.slice():rs.filter(x=>x.gw===k); }
 function renderAudit(){
   document.body.classList.toggle('noaudit', !audit || !audit.enabled);
   if(!audit || !audit.enabled) return;
-  const rs=audit.rentals.slice();
+  const rs=auditRs();
   const ev=rs.filter(x=>x.analysis && x.analysis.verdict!=='shared');
   const sum=f=>ev.reduce((s,x)=>s+(f(x)||0),0);
   const c=sum(x=>x.advertised_th), m=sum(x=>x.mrr_average_th), d=sum(x=>x.analysis.delivered_th);
@@ -900,7 +1000,7 @@ function renderAudit(){
   const shared=rs.length-ev.length;
   const mx=Math.max(c,m,d,1);
   const bar=(cls,lab,v)=>`<div class="vb ${cls}"><span>${lab}</span><div class="tr"><i style="width:${(v/mx*100).toFixed(1)}%"></i></div><b>${v.toFixed(1)} TH/s</b></div>`;
-  $('#cotejo').innerHTML = !rs.length ? '<div class="muted">sin rentas activas en MRR</div>'+pybCotejo(0) : `<div class="big3">
+  $('#cotejo').innerHTML = !rs.length ? '<div class="muted">'+(viewKey()!=='all'?'nada alquilado a '+esc(gwName(viewKey()))+' ahora mismo':'sin rentas activas en MRR')+'</div>'+pybCotejo(0) : `<div class="big3">
      <div><div class="muted" style="font-size:12px;letter-spacing:2px;text-transform:uppercase">llega al gateway</div>
        <div class="n" style="color:var(--accent2);text-shadow:0 0 14px rgba(247,147,26,.6)">${d.toFixed(1)} TH/s</div>
        <div class="muted">${c?(d/c*100).toFixed(1):'–'}% de lo pagado · ${m?(d/m*100).toFixed(1):'–'}% de lo que dice MRR</div></div>
@@ -917,7 +1017,7 @@ function renderAudit(){
     const got=a.delivered_th, pct=a.pct;
     const isFav=x.rig_id!=null && favSet().has(String(x.rig_id));
     const star=x.rig_id!=null?`<button class="star ${isFav?'on':''}" data-vfav="${esc(x.rig_id)}" data-name="${esc(x.rig_name||'')}" title="${isFav?'Quitar de favoritos':'Marcar como favorito'}">${isFav?'★':'☆'}</button>`:'';
-    return `<div class="vrow"><div><a class="rn" href="https://www.miningrigrentals.com/rental/${esc(x.id)}" target="_blank" rel="noopener" title="Abrir el alquiler en MRR"><b>${esc(x.rig_name||'')}</b> ↗</a><div class="muted mono" style="font-size:11.5px">#${esc(x.id)}${a.worker?' · '+esc(a.worker):''}${a.worker?(a.connected?' · <span class="ok">● minando</span>':' · <span class="bad">● desconectado</span>'):''}</div>
+    return `<div class="vrow"><div><a class="rn" href="https://www.miningrigrentals.com/rental/${esc(x.id)}" target="_blank" rel="noopener" title="Abrir el alquiler en MRR"><b>${esc(x.rig_name||'')}</b> ↗</a><div class="muted mono" style="font-size:11.5px">#${esc(x.id)}${x.pool?' · → '+esc(x.pool):''}${multiGw()&&x.gw?' · '+esc(gwName(x.gw)):''}${a.worker?' · '+esc(a.worker):''}${a.worker?(a.connected?' · <span class="ok">● minando</span>':' · <span class="bad">● desconectado</span>'):''}</div>
       <div class="vexp"><span>esperado <b>${x.advertised_th.toFixed(2)} TH/s</b></span><span>recibido <b class="got">${got!=null?got.toFixed(2)+' TH/s':'–'}</b>${pct!=null?' <span class="muted">('+pct.toFixed(0)+'%)</span>':''}</span></div>
       ${mrrPrice(x)}
       ${x.address?'<div class="addr" title="address a la que mina este alquiler">→ '+esc(x.address)+'</div>':''}
@@ -951,7 +1051,7 @@ function drawChart2(){
   if(!audit || !audit.enabled) return;
   const S=audit.series, cv=$('#chart2'); const dpr=window.devicePixelRatio||1; const W=cv.clientWidth, H=240; cv.width=W*dpr; cv.height=H*dpr;
   const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
-  const rs=audit.rentals.filter(x=>x.analysis && S.series[x.analysis.worker]).sort((p,q)=>p.advertised_th-q.advertised_th);
+  const rs=auditRs().filter(x=>x.analysis && S.series[x.analysis.worker]).sort((p,q)=>p.advertised_th-q.advertised_th);
   const seen=new Set(), ws=[];
   rs.forEach(x=>{ const w=x.analysis.worker; if(!seen.has(w)){ seen.add(w); ws.push({w, name:x.analysis.shared?w+' (compartido)':x.rig_name, th:rs.filter(y=>y.analysis.worker===w).reduce((s,y)=>s+y.advertised_th,0)}); } });
   if(!ws.length){ ctx.fillStyle='#7f8db0'; ctx.font='12px Rajdhani,system-ui'; ctx.fillText('acumulando muestras…',10,20); return; }

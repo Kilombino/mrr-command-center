@@ -147,6 +147,9 @@ class Audit:
             cols = [r[1] for r in c.execute("PRAGMA table_info(rental_worker)")]
             if "address" not in cols:   # the payout address of the rental's pool user
                 c.execute("ALTER TABLE rental_worker ADD COLUMN address TEXT")
+            if "pool_host" not in cols:  # where the rental's first pool points (which gateway gets it)
+                c.execute("ALTER TABLE rental_worker ADD COLUMN pool_host TEXT")
+                c.execute("ALTER TABLE rental_worker ADD COLUMN pool_port INTEGER")
             hcols = [r[1] for r in c.execute("PRAGMA table_info(history)")]
             if "source" not in hcols:   # "mrr" (default), "pyblock"
                 c.execute("ALTER TABLE history ADD COLUMN source TEXT")
@@ -339,7 +342,7 @@ class Audit:
                 set_pool_user(api, rid, pool, addr, want)
                 renamed.append({"rental": rid, "from": w, "to": want, "at": now})
                 w, obs = want, now
-            self.remember(rid, w, obs, addr, now)
+            self.remember(rid, w, obs, addr, now, pool)
         self.track(api, rentals, now)
         with _lock:
             _status.update(ok=True, at=now, error=None, renamed=(_status["renamed"] + renamed)[-20:])
@@ -582,12 +585,30 @@ class Audit:
             else:
                 conn.execute("DELETE FROM favorites WHERE rig_id=?", (str(rig_id),))
 
-    def remember(self, rid, worker, observe_from, address, now=None):
+    def remember(self, rid, worker, observe_from, address, now=None, pool=None):
+        """Keep a rental's worker and payout address and, when `pool` (MRR's first pool of the
+        rental) is given, the host and port it mines to: the gateway it belongs to."""
+        host, port = None, None
+        if pool:
+            host = str(pool.get("host") or "") or None
+            try:
+                port = int(pool.get("port") or 0) or None
+            except (TypeError, ValueError):
+                port = None
         with self.db() as conn:
-            conn.execute("INSERT INTO rental_worker (rental_id, worker, observe_from, updated, address) VALUES (?,?,?,?,?)"
+            conn.execute("INSERT INTO rental_worker (rental_id, worker, observe_from, updated, address, pool_host, pool_port)"
+                         " VALUES (?,?,?,?,?,?,?)"
                          " ON CONFLICT(rental_id) DO UPDATE SET worker=excluded.worker, observe_from=excluded.observe_from,"
-                         " updated=excluded.updated, address=excluded.address",
-                         (str(rid), worker, observe_from, int(now or time.time()), address))
+                         " updated=excluded.updated, address=excluded.address,"
+                         " pool_host=COALESCE(excluded.pool_host, rental_worker.pool_host),"
+                         " pool_port=COALESCE(excluded.pool_port, rental_worker.pool_port)",
+                         (str(rid), worker, observe_from, int(now or time.time()), address, host, port))
+
+    def pools(self):
+        """{rental id: (host, port)} for the rentals whose pool is known."""
+        with self.db() as conn:
+            return {r["rental_id"]: (r["pool_host"], r["pool_port"]) for r in conn.execute(
+                "SELECT rental_id, pool_host, pool_port FROM rental_worker WHERE pool_port IS NOT NULL")}
 
     def view(self, rentals):
         known = self.workers()

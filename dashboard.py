@@ -28,6 +28,7 @@ import pyblock as pyb_mod  # noqa: E402
 import tickets as tickets_mod  # noqa: E402
 import p2hash as p2h_mod  # noqa: E402
 import alerts as alerts_mod  # noqa: E402
+import gateways as gw_mod  # noqa: E402
 
 WWW = os.path.join(HERE, "www")
 HISTORY_PATH = os.path.join(HERE, "history.json")
@@ -96,8 +97,10 @@ button{width:100%;padding:11px;border:0;background:linear-gradient(135deg,#f7931
 <div class="err">{{msg}}</div><input type="password" name="password" placeholder="contrase&ntilde;a del dashboard" autofocus autocomplete="current-password"><button type="submit">Entrar</button></form></body></html>"""
 STATIC = {"/img/cover.jpg": ("img/cover.jpg", "image/jpeg"), "/img/logo-96.png": ("img/logo-96.png", "image/png"),
           "/img/logo-192.png": ("img/logo-192.png", "image/png"), "/favicon.png": ("img/favicon.png", "image/png")}
-cache = {"mrr": {"at": 0, "data": None, "error": None}, "gateway": {"at": 0, "data": None, "error": None}}
+cache = {"mrr": {"at": 0, "data": None, "error": None}, "gateway": {"at": 0, "data": None, "error": None},
+         "gw": {}}     # the other gateways (1.6.0): {key: {"at", "data", "error"}}
 history = []           # [{"t": epoch, "th": total_th, "clients": n}]
+xhistory = {}          # the other gateways' history, by gateway key (same shape, same "t" as history)
 rdns_cache = {}
 
 
@@ -307,30 +310,80 @@ def parse_status(html):
     return {v: out.get(k, "") for k, v in wanted.items()}
 
 
+def read_gateway(c, key=gw_mod.MAIN):
+    """One read of a gateway's status page: its clients (each tagged with the gateway's key)
+    and status. Raises when the page does not answer."""
+    clients = parse_clients(gateway_get(c, "/clients"), c["own_addresses"], c.get("other_sources"),
+                            c.get("own_workers"), c.get("own_user_agents"))
+    for cl in clients:
+        cl["gw"] = key
+    status = parse_status(gateway_get(c, "/"))
+    total = sum(x.get("hashrate_th", 0) for x in clients)
+    subs = [x for x in clients if x["subscribed"]]
+    return {"ok": True, "status": status, "clients": clients, "total_th": total,
+            "subscribed": len(subs), "foreign": sum(1 for x in subs if x.get("own") is False),
+            "at": time.time()}
+
+
+def audit_rows(clients, key):
+    """The clients as the audit stores them: another gateway's connections get its key in front
+    of theirs, so two gateways' connection ids never mix. Workers stay as they are, so a
+    rental is measured on whichever gateway its miners reach."""
+    if key == gw_mod.MAIN:
+        return clients
+    return [dict(cl, skey=f"{key}|{cl['skey']}") if cl.get("skey") else cl for cl in clients]
+
+
 def poll_gateway():
     c = cfg()
+    t = int(time.time())
     try:
-        clients = parse_clients(gateway_get(c, "/clients"), c["own_addresses"], c.get("other_sources"),
-                                c.get("own_workers"), c.get("own_user_agents"))
-        status = parse_status(gateway_get(c, "/"))
-        total = sum(x.get("hashrate_th", 0) for x in clients)
-        subs = [x for x in clients if x["subscribed"]]
-        data = {"ok": True, "status": status, "clients": clients, "total_th": total,
-                "subscribed": len(subs), "foreign": sum(1 for x in subs if x.get("own") is False),
-                "at": time.time()}
+        data = read_gateway(c)
         err = None
     except Exception as e:
         data, err = None, str(e)
     if data and AUDIT[0]:
         try:
-            AUDIT[0].record(clients, GATEWAY_POLL)
+            AUDIT[0].record(data["clients"], GATEWAY_POLL)
         except Exception as e:
             print(f"[audit record failed: {e}]", file=sys.stderr, flush=True)
     with lock:
         cache["gateway"] = {"at": time.time(), "data": data, "error": err}
         if data:
-            history.append({"t": int(data["at"]), "th": round(total, 3), "clients": len(subs)})
+            history.append({"t": t, "th": round(data["total_th"], 3), "clients": data["subscribed"]})
             del history[:-HISTORY_MAX]
+    poll_others(c, t)
+
+
+def poll_others(c, t):
+    """Read the other gateways that have a status page (a second DATUM, PATUM's gateways)."""
+    try:
+        lst = gw_mod.extra(gw_mod.listing(c))
+    except Exception as e:
+        print(f"[gateways listing failed: {e}]", file=sys.stderr, flush=True)
+        return
+    for g in lst:
+        k = g["key"]
+        try:
+            data = read_gateway(gw_mod.with_api(c, g), k)
+            err = None
+        except Exception as e:
+            data, err = None, str(e)
+        if data and AUDIT[0]:
+            try:
+                AUDIT[0].record(audit_rows(data["clients"], k), GATEWAY_POLL)
+            except Exception as e:
+                print(f"[audit record failed ({k}): {e}]", file=sys.stderr, flush=True)
+        with lock:
+            cache["gw"][k] = {"at": time.time(), "data": data, "error": err}
+            if data:
+                h = xhistory.setdefault(k, [])
+                h.append({"t": t, "th": round(data["total_th"], 3), "clients": data["subscribed"]})
+                del h[:-HISTORY_MAX]
+    keep = {g["key"] for g in lst}
+    with lock:
+        for k in [k for k in cache["gw"] if k not in keep]:
+            del cache["gw"][k]           # removed, or its status page taken off
 
 
 def gateway_loop():
@@ -343,13 +396,19 @@ def gateway_loop():
         time.sleep(GATEWAY_POLL)
 
 
+def xhistory_path():
+    return os.path.join(os.path.dirname(HISTORY_PATH), "history_gw.json")
+
+
 def save_history():
     with lock:
         snap = list(history)
-    tmp = HISTORY_PATH + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(snap, f)
-    os.replace(tmp, HISTORY_PATH)
+        xsnap = {k: list(v) for k, v in xhistory.items()}
+    for path, obj in ((HISTORY_PATH, snap), (xhistory_path(), xsnap)):
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(obj, f)
+        os.replace(tmp, path)
 
 
 def load_history():
@@ -358,6 +417,13 @@ def load_history():
             with open(HISTORY_PATH) as f:
                 history.extend(json.load(f)[-HISTORY_MAX:])
         except (ValueError, OSError):
+            pass
+    if os.path.exists(xhistory_path()):
+        try:
+            with open(xhistory_path()) as f:
+                for k, v in (json.load(f) or {}).items():
+                    xhistory[str(k)] = list(v)[-HISTORY_MAX:]
+        except (ValueError, OSError, AttributeError):
             pass
 
 
@@ -617,12 +683,129 @@ def plan_view():
 ADDRESS_RE = re.compile(r"^(bc1[02-9ac-hj-np-z]{11,87}|[13][1-9A-HJ-NP-Za-km-z]{25,34})$")
 
 
-def edit_pyblock_gateways(action, gateway, name=""):
-    """Saved public stratums for PyBLØCK / P2Hash (pyb_mod.edit_gateways), written to config.json."""
+def api_of(body):
+    """A gateway's status page from a request ({"api_url", "api_user", "api_password"}), or
+    None when the request does not touch it (then the saved one stays)."""
+    if "api_url" not in body:
+        return None
+    return {"url": str(body.get("api_url") or ""), "user": str(body.get("api_user") or ""),
+            "password": str(body.get("api_password") or "")}
+
+
+def gateway_cfg(c, key):
+    """The config to talk to gateway `key` with (its status page as config "gateway")."""
+    if key == gw_mod.MAIN:
+        return c
+    g = next((x for x in gw_mod.listing(c) if x["key"] == key), None)
+    if not g or not g.get("api"):
+        raise RuntimeError("ese gateway no tiene página de estado configurada")
+    return gw_mod.with_api(c, g)
+
+
+def rental_pools(rentals):
+    """{rental id: (host, port)}: where each rental mines. From the audit, which reads every
+    rental's pool on its passes anyway; without the audit, read here, at most 10 per call and
+    each again after 30 min (MRR allows 100 calls a minute)."""
+    if AUDIT[0]:
+        try:
+            return AUDIT[0].pools()
+        except Exception as e:
+            print(f"[rental pools failed: {e}]", file=sys.stderr, flush=True)
+            return {}
+    now = time.time()
+    with lock:
+        pc = dict(_pool_cache)
+    due = [str(r["id"]) for r in rentals if str(r["id"]) not in pc or now - pc[str(r["id"])][2] > 1800][:10]
+    if due:
+        try:
+            api = mrr_api(cfg())
+            try:
+                for rid in due:
+                    try:
+                        top = audit_mod.top_pool(api, rid) or {}
+                        pc[rid] = (top.get("host"), int(top.get("port") or 0) or None, now)
+                    except Exception:
+                        pc[rid] = (None, None, now)
+            finally:
+                mrr_bot.save_state(api.state)
+        except Exception as e:
+            print(f"[rental pools failed: {e}]", file=sys.stderr, flush=True)
+        with lock:
+            _pool_cache.update(pc)
+    return {k: (v[0], v[1]) for k, v in pc.items() if v[1]}
+
+
+_pool_cache = {}
+
+
+def tag_rentals(rows, lst, pools):
+    """Copies of the rentals with where they mine: "pool" (host:port) and "gw" (gateway key)."""
+    out = []
+    for r in rows or []:
+        host, port = pools.get(str(r["id"]), (None, None))
+        out.append(dict(r, pool=f"{host}:{port}" if port else "",
+                        gw=gw_mod.match(lst, host, port) if (port or len(lst) == 1) else None))
+    return out
+
+
+def gateways_view(c):
+    """The gateways for the overview: the list (no passwords) and each other gateway's data."""
+    lst = gw_mod.listing(c)
+    with lock:
+        status = {gw_mod.MAIN: dict(cache["gateway"])}
+        status.update({k: dict(v) for k, v in cache["gw"].items()})
+        xh = {k: list(v) for k, v in xhistory.items()}
+    views = {}
+    for g in lst:
+        if g["primary"]:
+            continue
+        st = status.get(g["key"]) or {}
+        views[g["key"]] = {"gateway": st.get("data"),
+                           "error": st.get("error") if g.get("api") else "sin página de estado",
+                           "history": xh.get(g["key"], [])[-(6 * 3600 // GATEWAY_POLL):] if g.get("api") else []}
+    return lst, {"gateways": gw_mod.public(lst, status), "gw_views": views}
+
+
+_profile_pools = {}      # MRR pool profile id -> (read at, (host, port) of its first pool)
+PROFILE_POOL_TTL = 600
+
+
+def profile_pool(api, p):
+    """(host, port) a pool profile mines to (its first pool): from MRR's list when it carries
+    the pools, else /account/profile/<id>, kept 10 min. (None, None) when it has none."""
+    pid = int(p["id"])
+    pools = p.get("pools")
+    if pools is None:
+        ent = _profile_pools.get(pid)
+        if ent and time.time() - ent[0] < PROFILE_POOL_TTL:
+            return ent[1]
+        pools = (api.call("GET", f"/account/profile/{pid}") or {}).get("pools") or []
+    top = sorted(pools or [], key=lambda x: int(x.get("priority") or 0))
+    hp = (str(top[0].get("host") or "") or None, int(top[0].get("port") or 0) or None) if top else (None, None)
+    _profile_pools[pid] = (time.time(), hp)
+    return hp
+
+
+def profile_gateway(api, p, lst):
+    """Where a pool profile mines: {"pool": "host:port", "gw": gateway key or None}."""
+    try:
+        host, port = profile_pool(api, p)
+    except Exception as e:
+        print(f"[profile pool failed: {e}]", file=sys.stderr, flush=True)
+        return {"pool": "", "gw": None}
+    if not port:
+        return {"pool": "", "gw": None}
+    return {"pool": f"{host}:{port}", "gw": gw_mod.match(lst, host, port) if len(lst) > 1 else gw_mod.MAIN}
+
+
+def edit_pyblock_gateways(action, gateway, name="", api=None):
+    """Saved gateways (pyb_mod.edit_gateways), written to config.json: their public stratum
+    (PyBLØCK / P2Hash orders mine to the active one) and, for the ones other than the main
+    gateway, the status page the panel reads them from."""
     with open(mrr_bot.CONFIG_PATH) as f:
         raw = json.load(f)
     try:
-        lst = pyb_mod.edit_gateways(raw, action, gateway, name)
+        lst = pyb_mod.edit_gateways(raw, action, gateway, name, api)
     except ValueError as e:
         raise RuntimeError(str(e))
     tmp = mrr_bot.CONFIG_PATH + ".tmp"
@@ -630,7 +813,7 @@ def edit_pyblock_gateways(action, gateway, name=""):
         json.dump(raw, f, indent=1)
     os.chmod(tmp, 0o600)
     os.replace(tmp, mrr_bot.CONFIG_PATH)
-    return {"gateways": [dict(g, hostport=pyb_mod.hostport(g)) for g in lst],
+    return {"gateways": pyb_mod.public_gateways(lst),
             "gateway": pyb_mod.hostport(raw["pyblock"].get("gateway") or {})}
 
 
@@ -682,7 +865,7 @@ def manual_rent(rig_id, hours):
             if pool and address:
                 audit_mod.set_pool_user(api, rid, pool, address, worker)
                 if AUDIT[0]:
-                    AUDIT[0].remember(rid, worker, None, address)
+                    AUDIT[0].remember(rid, worker, None, address, pool=pool)
         except Exception as e:   # the rental exists and mines to the profile either way
             note = f" (pool user not changed: {e})"
             worker = None
@@ -761,8 +944,12 @@ def pyb_analyse(worker, start, end, th):
 
 
 def gateway_clients():
+    """Every gateway's clients (the main one's and the others'), each tagged with its gateway."""
     with lock:
-        return list((cache["gateway"]["data"] or {}).get("clients") or [])
+        out = list((cache["gateway"]["data"] or {}).get("clients") or [])
+        for ent in cache["gw"].values():
+            out += list((ent.get("data") or {}).get("clients") or [])
+    return out
 
 
 def pyb_finished(rec):
@@ -1106,7 +1293,7 @@ def edit_alerts(updates):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.5.0"
+    server_version = "mrr-dashboard/1.6.0"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):
@@ -1203,7 +1390,11 @@ class Handler(BaseHTTPRequestHandler):
                     gw = dict(cache["gateway"])
                     hist = list(history)
                 st = mrr_bot.load_state()
+                lst, gviews = gateways_view(c)
+                if mrr:
+                    mrr = dict(mrr, rentals=tag_rentals(mrr.get("rentals"), lst, rental_pools(mrr.get("rentals") or [])))
                 return self._json({
+                    **gviews,
                     "now": time.time(), "mrr": mrr, "mrr_error": mrr_err,
                     "gateway": gw["data"], "gateway_error": gw["error"],
                     "history": hist[-(6 * 3600 // GATEWAY_POLL):] if "full" not in q else hist,
@@ -1226,7 +1417,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not AUDIT[0]:
                     return self._json({"enabled": False})
                 mrr, mrr_err = mrr_overview()
-                return self._json(dict(AUDIT[0].view((mrr or {}).get("rentals") or []), enabled=True, mrr_error=mrr_err))
+                rows = (mrr or {}).get("rentals") or []
+                v = AUDIT[0].view(rows)
+                lst = gw_mod.listing(cfg())
+                tagged = {str(r["id"]): r for r in tag_rentals(rows, lst, AUDIT[0].pools())}
+                for r in v["rentals"]:
+                    t = tagged.get(str(r["id"])) or {}
+                    r["pool"], r["gw"] = t.get("pool", ""), t.get("gw")
+                return self._json(dict(v, enabled=True, mrr_error=mrr_err))
             if url.path == "/api/alerts":
                 if not ALERT[0] or c_ro():
                     return self._json({"enabled": False})
@@ -1288,7 +1486,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             c = cfg()
             if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address",
-                                                     "/api/pyblock/order", "/api/pyblock/gateways", "/api/tickets/settings", "/api/own-workers",
+                                                     "/api/pyblock/order", "/api/pyblock/gateways", "/api/gateways", "/api/tickets/settings", "/api/own-workers",
                                                      "/api/tickets/mark")
                                      or self.path.startswith(("/api/p2hash/", "/api/alerts")) or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
@@ -1369,6 +1567,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(dict(ok=True, **manual_rent(body["rig"], body["hours"])))
             if self.path == "/api/extend":
                 return self._json(dict(ok=True, **extend_rental(body["rental"], body["hours"], body.get("quote_only", False))))
+            if self.path == "/api/gateways":
+                return self._json(dict(ok=True, **edit_pyblock_gateways(
+                    str(body.get("action") or ""), str(body.get("gateway") or ""), str(body.get("name") or ""),
+                    api_of(body))))
             if self.path.startswith("/api/pyblock/"):
                 if not PYB[0]:
                     return self._json({"ok": False, "error": "PyBLØCK está desactivado (pyblock.enabled)"}, 400)
@@ -1387,7 +1589,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self._json({"ok": True, "order": o})
                     if self.path == "/api/pyblock/gateways":
                         return self._json(dict(ok=True, **edit_pyblock_gateways(
-                            str(body.get("action") or ""), str(body.get("gateway") or ""), str(body.get("name") or ""))))
+                            str(body.get("action") or ""), str(body.get("gateway") or ""), str(body.get("name") or ""),
+                            api_of(body))))
                     if self.path == "/api/pyblock/forget":
                         PYB[0].forget(str(body.get("ref") or ""))
                         return self._json({"ok": True})
@@ -1433,7 +1636,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": str(e)}, 409)
                 return self._json({"error": "not found"}, 404)
             if self.path == "/api/gateway/kick":
-                status = gateway_post_cmd(cfg(), {"cmd": "kill_client", "tid": int(body["tid"]), "cid": int(body["cid"])})
+                status = gateway_post_cmd(gateway_cfg(cfg(), str(body.get("gw") or gw_mod.MAIN)),
+                                          {"cmd": "kill_client", "tid": int(body["tid"]), "cid": int(body["cid"])})
                 threading.Thread(target=poll_gateway, daemon=True).start()
                 return self._json({"ok": status < 400, "status": status})
             return self._json({"error": "not found"}, 404)
