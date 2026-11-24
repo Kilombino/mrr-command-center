@@ -85,6 +85,10 @@ class Market(unittest.TestCase):
         self.assertEqual((o["id"], o["th"], o["maxh"], o["minh"]), ("7", 100.0, 24.0, 3.0))
         self.assertIsNone(alerts.offer(rig(8, 2000, enabled=False), "BTC", 0.03, mrr_bot.UNIT))
         self.assertIsNone(alerts.offer({"id": 9}, "BTC", 0.03, mrr_bot.UNIT))
+        long = dict(rig(10, 2000), name="  Difficulty  is 16000 &amp; table operation of 110T without arbitrary changes  ")
+        n = alerts.offer(long, "BTC", 0.03, mrr_bot.UNIT)["name"]
+        self.assertEqual(len(n), 60)
+        self.assertTrue(n.startswith("Difficulty is 16000 & table") and n.endswith("…"))
 
     def test_threshold_with_and_without_fee(self):
         s = alerts.settings({"price_alert": {"threshold": 2050}})

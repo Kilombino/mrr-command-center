@@ -19,6 +19,7 @@ Settings ("price_alert" in config.json, edited from the dashboard):
   enabled, recipient (npub or hex), relays, threshold, with_fee, min_th, min_hours,
   online_only, favorites_only, interval_min.
 """
+import html
 import json
 import os
 import threading
@@ -123,6 +124,13 @@ def check_ready(s):
 
 
 # ----------------------------------------------------------------------------- the market
+def short_name(name, rid, limit=60):
+    """A rig's name for a message: entities decoded, spaces collapsed, cut at `limit`
+    (owners use the name as an advert: some are whole sentences)."""
+    n = " ".join(html.unescape(str(name or "")).split()) or f"rig {rid}"
+    return n if len(n) <= limit else n[:limit - 1].rstrip() + "…"
+
+
 def offer(rig, currency, fee_rate, units):
     """A rig of MRR's listing as {id, name, th, price, price_fee, minh, maxh, online,
     available}, prices in sats of MRR's coin per TH per day; None if it has no price."""
@@ -137,7 +145,7 @@ def offer(rig, currency, fee_rate, units):
         th = float(adv.get("hash") or 0) * units.get((adv.get("type") or "th").lower(), 0)
         sat = price / units[unit] * 1e8
         st = rig.get("status") or {}
-        return {"id": str(rig["id"]), "name": str(rig.get("name") or rig["id"]), "th": th,
+        return {"id": str(rig["id"]), "name": short_name(rig.get("name"), rig["id"]), "th": th,
                 "price": sat, "price_fee": sat * (1 + float(fee_rate or 0)),
                 "minh": float(rig.get("minhours") or 0) or None,
                 "maxh": float(rig.get("maxhours") or 0) or None,

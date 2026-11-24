@@ -380,7 +380,10 @@ def parse_pubkey(s):
     if s.lower().startswith("nostr:"):
         s = s[6:]
     if s.lower().startswith("npub1"):
-        pk = bech32_decode(s, "npub")
+        try:
+            pk = bech32_decode(s, "npub")
+        except ValueError as e:
+            raise ValueError(f"npub no válido ({e})")
     elif len(s) == 64 and all(c in "0123456789abcdefABCDEF" for c in s):
         pk = s.lower()
     else:
