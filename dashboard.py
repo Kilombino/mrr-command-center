@@ -1714,8 +1714,10 @@ def main():
                                 analyse=pyb_analyse, on_finish=p2h_finished)
         P2H[0].start()
     threading.Thread(target=gateway_loop, daemon=True).start()
-    if not c.get("read_only") and c.get("api_key"):
-        ALERT[0] = alerts_mod.PriceAlert(alert_settings, alert_market, alert_lists, alert_ctx)
+    if not c.get("read_only"):
+        # next to config.json (MRR_DATA_DIR in the packaged app), so updates keep the key
+        ALERT[0] = alerts_mod.PriceAlert(alert_settings, alert_market, alert_lists, alert_ctx,
+                                         path=os.path.join(os.path.dirname(mrr_bot.CONFIG_PATH), "price_alert.json"))
         threading.Thread(target=ALERT[0].loop, daemon=True, name="price alerts").start()
     if AUDIT[0]:
         threading.Thread(target=ticket_loop, daemon=True).start()
