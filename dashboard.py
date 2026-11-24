@@ -586,6 +586,23 @@ def plan_view():
 ADDRESS_RE = re.compile(r"^(bc1[02-9ac-hj-np-z]{11,87}|[13][1-9A-HJ-NP-Za-km-z]{25,34})$")
 
 
+def edit_pyblock_gateways(action, gateway, name=""):
+    """Saved public stratums for PyBLØCK / P2Hash (pyb_mod.edit_gateways), written to config.json."""
+    with open(mrr_bot.CONFIG_PATH) as f:
+        raw = json.load(f)
+    try:
+        lst = pyb_mod.edit_gateways(raw, action, gateway, name)
+    except ValueError as e:
+        raise RuntimeError(str(e))
+    tmp = mrr_bot.CONFIG_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(raw, f, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, mrr_bot.CONFIG_PATH)
+    return {"gateways": [dict(g, hostport=pyb_mod.hostport(g)) for g in lst],
+            "gateway": pyb_mod.hostport(raw["pyblock"].get("gateway") or {})}
+
+
 def set_rent_address(address):
     address = (address or "").strip()
     if address and not ADDRESS_RE.match(address):
@@ -1001,7 +1018,7 @@ def gateway_log(lines=40):
 
 # ----------------------------------------------------------------------------- http
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.4.4"
+    server_version = "mrr-dashboard/1.4.5"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):
@@ -1179,7 +1196,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             c = cfg()
             if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address",
-                                                     "/api/pyblock/order", "/api/tickets/settings", "/api/own-workers",
+                                                     "/api/pyblock/order", "/api/pyblock/gateways", "/api/tickets/settings", "/api/own-workers",
                                                      "/api/tickets/mark")
                                      or self.path.startswith("/api/p2hash/") or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
@@ -1254,6 +1271,9 @@ class Handler(BaseHTTPRequestHandler):
                     if self.path == "/api/pyblock/add":
                         o = PYB[0].add_external(str(body.get("order") or ""), str(body.get("worker") or ""))
                         return self._json({"ok": True, "order": o})
+                    if self.path == "/api/pyblock/gateways":
+                        return self._json(dict(ok=True, **edit_pyblock_gateways(
+                            str(body.get("action") or ""), str(body.get("gateway") or ""), str(body.get("name") or ""))))
                     if self.path == "/api/pyblock/forget":
                         PYB[0].forget(str(body.get("ref") or ""))
                         return self._json({"ok": True})

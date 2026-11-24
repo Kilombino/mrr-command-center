@@ -20,6 +20,7 @@ config.json:
     "worker_prefix": "pyb"                  # gateway user = address.<prefix><6 hex>
   }
 """
+import ipaddress
 import json
 import os
 import re
@@ -72,7 +73,103 @@ def settings(c):
     p.update(c.get("pyblock") or {})
     for k in ("gateway", "backup"):
         p[k] = dict(DEFAULTS[k], **(p.get(k) or {}))
+    p["gateways"] = gateway_list(p)
     return p
+
+
+HOSTPORT_RE = re.compile(r"^\[?([A-Za-z0-9.\-:]+?)\]?:([0-9]{1,5})$")
+
+
+def parse_hostport(v):
+    """'host:port' -> {"host", "port"}, or None when empty or malformed."""
+    m = HOSTPORT_RE.match((v or "").strip())
+    if not m or not 0 < int(m.group(2)) < 65536:
+        return None
+    return {"host": m.group(1), "port": int(m.group(2))}
+
+
+def hostport(g):
+    """{"host", "port"} -> 'host:port' ('' when there is no host)."""
+    return f"{g['host']}:{int(g.get('port') or 0)}" if (g or {}).get("host") else ""
+
+
+def gateway_list(p):
+    """The saved public stratums of `pyblock.gateways` ([{name, host, port}], or "host:port"
+    strings), deduplicated, with the active `pyblock.gateway` always in it: a config written
+    before 1.4.5 (only `gateway`) gives a list of one. The active one is the one orders use."""
+    out, seen = [], set()
+
+    def add(name, g):
+        if isinstance(g, str):
+            g = parse_hostport(g)
+        if not g or not g.get("host") or not g.get("port"):
+            return
+        key = f"{str(g['host']).lower()}:{int(g['port'])}"
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({"name": str(name or "").strip()[:40], "host": str(g["host"]), "port": int(g["port"])})
+
+    for g in p.get("gateways") or []:
+        if isinstance(g, dict):
+            add(g.get("name"), g.get("hostport") or g)
+        else:
+            add("", g)
+    active = p.get("gateway") or {}
+    if active.get("host"):
+        add("", active)
+    return out
+
+
+def check_gateway(v):
+    """A public stratum given by hand: 'host:port' -> {"host", "port"}, or ValueError with
+    why not. PyBLØCK and P2Hash rigs mine from the internet, so a local address can't work."""
+    g = parse_hostport(v)
+    if g is None:
+        raise ValueError("el stratum va como host:puerto (tu IP pública o dominio y el puerto de tu DATUM)")
+    host = g["host"].lower()
+    try:
+        local = not ipaddress.ip_address(host).is_global
+    except ValueError:
+        local = host == "localhost" or host.endswith((".local", ".lan", ".internal"))
+    if local:
+        raise ValueError("PyBLØCK mina desde internet: pon tu IP pública o dominio, no una dirección local")
+    return g
+
+
+def edit_gateways(raw, action, gateway, name=""):
+    """Change the saved stratums in a raw config.json dict (in place):
+    "add" saves one (name optional; adding a saved one renames it), "use" makes a saved one
+    the active `pyblock.gateway`, "remove" forgets one (not the active one). Returns the list."""
+    p = raw.setdefault("pyblock", {})
+    lst = gateway_list(settings(raw))
+    if action == "add":
+        g = check_gateway(gateway)
+        key = hostport(g).lower()
+        for x in lst:
+            if hostport(x).lower() == key:
+                x["name"] = str(name or "").strip()[:40] or x["name"]
+                break
+        else:
+            lst.append({"name": str(name or "").strip()[:40], **g})
+        if not (p.get("gateway") or {}).get("host"):
+            p["gateway"] = dict(g)          # the first one saved is the active one
+    elif action in ("use", "remove"):
+        g = parse_hostport(gateway)
+        hit = g and next((x for x in lst if hostport(x).lower() == hostport(g).lower()), None)
+        if not hit:
+            raise ValueError("ese stratum no está guardado")
+        active = hostport(p.get("gateway") or {}).lower()
+        if action == "use":
+            p["gateway"] = {"host": hit["host"], "port": hit["port"]}
+        else:
+            if hostport(hit).lower() == active:
+                raise ValueError("ese es el que está en uso: elige otro antes de quitarlo")
+            lst.remove(hit)
+    else:
+        raise ValueError("acción desconocida")
+    p["gateways"] = lst
+    return lst
 
 
 def mask(secret):
@@ -427,10 +524,12 @@ class PyBlock:
 
     def gateway_test(self, force=False):
         """Their own gateway check (public host, BLAKE2b chain, DATUM), without creating anything."""
-        if not force and self._gw["data"] and time.time() - self._gw["at"] < GWTEST_TTL:
-            return self._gw["data"]
         p = self.settings()
         gw = p["gateway"]
+        cached = self._gw["data"]
+        if (not force and cached and time.time() - self._gw["at"] < GWTEST_TTL
+                and cached.get("pool") == hostport(gw)):
+            return cached
         addr, _ = self.address()
         if not gw.get("host") or not gw.get("port"):
             return {"ok": False, "error": "falta pyblock.gateway (host y port) en config.json"}
@@ -444,6 +543,7 @@ class PyBlock:
         except Exception as e:
             res = {"ok": False, "error": f"no se pudo consultar a PyBLØCK: {e}"[:200]}
         res["at"] = time.time()
+        res["pool"] = hostport(gw)        # which saved stratum this result is for
         self._gw = {"at": time.time(), "data": res}
         return res
 
@@ -1010,11 +1110,13 @@ class PyBlock:
             "enabled": bool(p.get("enabled", True)), "error": err, "catalog": cat,
             "gateway": f"{p['gateway']['host']}:{int(p['gateway']['port'] or 0)}" if p["gateway"].get("host") else "",
             "backup": f"{p['backup']['host']}:{int(p['backup']['port'] or 0)}" if p["backup"].get("host") else "",
+            "gateways": [dict(g, hostport=hostport(g)) for g in p["gateways"]],
             "address": addr, "address_source": src, "orders": orders,
             "totals": {"active": len(live), "th": sum(o["th"] or 0 for o in live),
                        "live_ths": sum(o["live_ths"] or 0 for o in live),
                        "gateway_th": sum(o["gateway_th"] or 0 for o in live),
                        # measured since each start (shares x vdiff), like "llega al gateway" for MRR
                        "delivered_th": sum((o["analysis"] or {}).get("delivered_th") or 0 for o in live)},
-            "gateway_test": self._gw["data"],
+            "gateway_test": (self._gw["data"] if (self._gw["data"] or {}).get("pool") == hostport(p["gateway"])
+                             else None),
         }
