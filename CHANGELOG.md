@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.5.0 (24 Nov 2026)
+
+- **Price alerts by private Nostr message.** When a rig on MRR's market costs less than a
+  threshold (the dashboard's unit per TH per day, MRR's fee included unless unticked), the
+  panel sends a NIP-17 private message (a kind 14 rumor, sealed and gift-wrapped as kind 1059,
+  NIP-44 encryption) from its own Nostr key to your npub. Any NIP-17 client (Amethyst, 0xchat,
+  Primal...) shows it as a direct message: no Telegram, no central server. Optional filters:
+  minimum TH/s, minimum rentable hours, online only (on by default), only ⭐ favourites;
+  blacklisted rigs are never announced. Anti-spam: one message per check lists the rigs that
+  newly crossed (up to 10, the rest counted); a rig is announced once while it stays below
+  and again only after it went back above the threshold (or left the market) and crossed
+  again. That state, and the panel's secret key, live in `price_alert.json` (mode 600,
+  gitignored); the dashboard shows only the panel's npub ("Regenerar" makes a new one). A
+  message that no relay accepts is tried again at the next check, and a failed MRR listing
+  never re-arms the rigs.
+- Settings in `price_alert` in config.json, edited from a new collapsible section "Avisos de
+  precio (Nostr)" at the end, before the logs: on/off (off by default), your npub (or hex
+  key; stored as npub, checked to be a point on the curve), threshold, fee, filters, check
+  interval (5 min) and relays (by default relay.kilombino.com, nos.lol and relay.primal.net,
+  each checked with a real send-fetch-decrypt round trip; your own NIP-17 inbox relays, kind
+  10050, are added when you publish them). "Enviar prueba" sends a test message now and
+  "Comprobar ahora" looks at the market at once. Hidden and refused in `read_only`.
+- The market card and the alerts share one cached MRR listing (`market_rigs`), so the alerts
+  add at most one listing per interval while nobody has the page open.
+- `nostr.py` gains NIP-19 (`npub`, `parse_pubkey`, bech32).
+
 ## 1.4.5 (24 Nov 2026)
 
 - **Several public stratums for PyBLØCK and P2Hash.** `pyblock.gateways` keeps a list of

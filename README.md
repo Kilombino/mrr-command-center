@@ -294,6 +294,29 @@ keeps its own record: the "copy and open in MRR" button of the ticket dialog sta
 a "ticket abierto" toggle on each row marks the ones opened by hand on MRR's site (click
 again to clear it), and rentals the automatic ticket acted on show as "aviso auto ✓".
 
+### Price alerts by Nostr
+
+The "Avisos de precio (Nostr)" section, at the end before the logs, sends you a private
+Nostr message (NIP-17: a gift-wrapped, NIP-44-encrypted direct message) when a rig on MRR's
+market costs less than your threshold, in the dashboard's unit per TH per day, with MRR's
+fee included unless you untick it. Any NIP-17 client shows it as a DM (Amethyst, 0xchat,
+Primal...), so it depends neither on Telegram nor on a central server. It comes from the
+panel's own Nostr key, created when you switch the alerts on and kept in
+`price_alert.json` (600, gitignored); the section shows its npub so you can follow it, and
+"Regenerar" makes a new one.
+
+Filters: minimum TH/s, minimum rentable hours, online only (default) and only ⭐
+favourites; blacklisted rigs are never announced. Every check (5 minutes by default) sends
+at most one message, listing the rigs that newly crossed; a rig is announced once while it
+stays below and again only after it went back above (or left the market) and crossed
+again, also across restarts. A message no relay accepts is retried at the next check, and
+a failed MRR listing never re-arms the rigs. The relays are relay.kilombino.com, nos.lol
+and relay.primal.net by default, plus your own inbox relays if you publish a kind 10050
+list. "Enviar prueba" sends a test message now; "Comprobar ahora" looks at the market at
+once. The alerts reuse the market card's MRR listing (one shared cache), so they add at
+most one listing per interval while nobody has the page open. Off by default, and hidden
+in read-only mode.
+
 ### Layout
 
 The sticky header (gateway, **total gateway hashrate**, pool and shares, MRR balance,
@@ -382,6 +405,12 @@ Keys marked *market* decide which rigs the market card lists (and the upstream b
 | `p2hash.caps.rental_sats` / `day_sats` | 0 / 0 | caps (0 = off; automatic payment needs both; the dashboard's values win) |
 | `p2hash.min_pct` | 0.5 | least share of the advertised hash, since the last payment, that keeps paying |
 | `p2hash.worker_prefix` | `p2h` | worker = prefix + 6 random hex per rental |
+| `price_alert.enabled` | false | private Nostr message when a rig is under the threshold (set from the dashboard) |
+| `price_alert.recipient` | `""` | your npub (or hex key) |
+| `price_alert.threshold` / `with_fee` | 0 / true | unit per TH per day; compare with MRR's fee included |
+| `price_alert.min_th` / `min_hours` / `online_only` / `favorites_only` | 0 / 0 / true / false | filters |
+| `price_alert.interval_min` | 5 | minutes between checks |
+| `price_alert.relays` | relay.kilombino.com, nos.lol, relay.primal.net | where the messages go (plus your kind 10050 inbox relays) |
 | `audit.enabled` | true | record gateway samples and show the rental audit |
 | `audit.assign_workers` | false | give each active rental its own worker through the MRR API |
 | `audit.worker_prefix` | `mrr` | worker name = prefix + rental id |
@@ -413,7 +442,8 @@ how it decides.
 dashboard.py      MRR Command Center server
 pyblock.py        PyBLØCK Market: packages, manual orders, market orders, order status
 p2hash.py         P2Hash renter: listings, requests, tranche payments, caps
-nostr.py          minimal Nostr in the standard library (BIP-340, NIP-44, NIP-17, NWC, WebSocket)
+alerts.py         price alerts by private Nostr message (NIP-17)
+nostr.py          minimal Nostr in the standard library (BIP-340, NIP-44, NIP-17, NIP-19, NWC, WebSocket)
 tickets.py        evidence text for MRR tickets and the automatic notice
 tests/            unit tests (python3 -m unittest discover -s tests)
 audit.py          rental audit: gateway samples, verdicts, per-rental worker, history, favourites
@@ -429,6 +459,7 @@ history.json      gateway hashrate history (gitignored)
 audit.db          gateway samples, rental history, favourites, ticket log (gitignored)
 pyblock.json      PyBLØCK orders with their secret ids (600, gitignored)
 p2hash.json       P2Hash buyer key, payments (24 h cap) and history (600, gitignored)
+price_alert.json  the panel's Nostr key for price alerts and which rigs were announced (600, gitignored)
 ```
 
 ## Notes and gotchas

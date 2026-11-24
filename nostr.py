@@ -308,6 +308,88 @@ def tag(ev, key):
     return None
 
 
+# ----------------------------------------------------------------------------- NIP-19 (npub / nsec)
+_B32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+
+def _polymod(values):
+    gen = (0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3)
+    chk = 1
+    for v in values:
+        top = chk >> 25
+        chk = (chk & 0x1ffffff) << 5 ^ v
+        for i in range(5):
+            chk ^= gen[i] if (top >> i) & 1 else 0
+    return chk
+
+
+def _hrp_expand(hrp):
+    return [ord(x) >> 5 for x in hrp] + [0] + [ord(x) & 31 for x in hrp]
+
+
+def _convertbits(data, frombits, tobits, pad):
+    acc, bits, out, maxv = 0, 0, [], (1 << tobits) - 1
+    for v in data:
+        acc = (acc << frombits) | v
+        bits += frombits
+        while bits >= tobits:
+            bits -= tobits
+            out.append((acc >> bits) & maxv)
+    if pad and bits:
+        out.append((acc << (tobits - bits)) & maxv)
+    elif not pad and (bits >= frombits or (acc << (tobits - bits)) & maxv):
+        raise ValueError("bech32: bad padding")
+    return out
+
+
+def bech32_encode(hrp, hex32):
+    data = _convertbits(bytes.fromhex(hex32), 8, 5, True)
+    chk = _polymod(_hrp_expand(hrp) + data + [0] * 6) ^ 1
+    return hrp + "1" + "".join(_B32[d] for d in data + [(chk >> 5 * (5 - i)) & 31 for i in range(6)])
+
+
+def bech32_decode(s, hrp):
+    """The 32-byte payload (hex) of a bech32 string with that prefix, or ValueError."""
+    s = (s or "").strip()
+    if s.lower() != s and s.upper() != s:
+        raise ValueError("bech32: mixed case")
+    s = s.lower()
+    pos = s.rfind("1")
+    if pos < 1 or s[:pos] != hrp or len(s) - pos < 7:
+        raise ValueError(f"not a {hrp}")
+    try:
+        data = [_B32.index(c) for c in s[pos + 1:]]
+    except ValueError:
+        raise ValueError("bech32: bad character")
+    if _polymod(_hrp_expand(hrp) + data) != 1:
+        raise ValueError("bech32: bad checksum")
+    raw = bytes(_convertbits(data[:-6], 5, 8, False))
+    if len(raw) != 32:
+        raise ValueError("bech32: payload is not 32 bytes")
+    return raw.hex()
+
+
+def npub(pk_hex):
+    return bech32_encode("npub", pk_hex)
+
+
+def parse_pubkey(s):
+    """A public key from an npub or 64 hex characters (x-only, lowercase hex), or ValueError.
+    It must be a point on the curve, so a typo is refused instead of encrypted to nobody."""
+    s = (s or "").strip()
+    if s.lower().startswith("nostr:"):
+        s = s[6:]
+    if s.lower().startswith("npub1"):
+        pk = bech32_decode(s, "npub")
+    elif len(s) == 64 and all(c in "0123456789abcdefABCDEF" for c in s):
+        pk = s.lower()
+    else:
+        raise ValueError("ni npub ni clave pública en hex")
+    if _lift_x(int(pk, 16)) is None:
+        raise ValueError("esa clave no es un punto de la curva")
+    return pk
+
+
 # ----------------------------------------------------------------------------- NIP-17 / NIP-59
 TWO_DAYS = 2 * 24 * 3600
 

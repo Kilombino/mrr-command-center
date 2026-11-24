@@ -13,3 +13,5 @@ pyblock.json.tmp
 p2hash.json
 p2hash.json.tmp
 config.json.tmp
+price_alert.json
+price_alert.json.tmp

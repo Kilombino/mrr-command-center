@@ -242,6 +242,14 @@ body.nobot #hashcard{grid-column:span 12}
 .big3{display:grid;gap:12px}
 .big3 .n{font:700 26px var(--display);letter-spacing:1px}
 @media(max-width:700px){.vrow{grid-template-columns:1fr}}
+/* ---------- price alerts by Nostr DM (1.5.0) ---------- */
+.pa-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px 18px;margin:6px 0 12px}
+.pa-grid label{display:flex;flex-direction:column;gap:4px;font:600 11px var(--ui);color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+.pa-grid label.chk{flex-direction:row;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)}
+.pa-grid label.chk input{width:auto;margin:0}
+.pa-grid textarea{min-height:64px;resize:vertical;font:12px var(--mono);background:#080c15;color:var(--text);border:1px solid var(--line2);padding:6px}
+.pa-npub{font:12px var(--mono);word-break:break-all}
+.pa-res .ok{color:var(--ok)}.pa-res .bad{color:var(--bad)}
 /* ---------- collapsible sections (open/closed remembered per browser) ---------- */
 .coll>.ctog{cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
 .coll>.ctog .chev{display:inline-block;width:12px;color:var(--cyan);font:700 12px var(--mono);transition:transform .18s}
@@ -467,6 +475,35 @@ body.nobot #hashcard{grid-column:span 12}
     </div>
       </div>
     </div>
+    </div>
+  </section>
+
+  <section class="card span12 coll ro-hide" data-k="alerts" id="pa-card" style="display:none"><i class="corner tr"></i><i class="corner bl"></i>
+    <h2 class="ctog">Avisos de precio (Nostr) <span class="right muted" id="pa-info" style="font:500 12px var(--mono);letter-spacing:0;text-transform:none"></span></h2>
+    <div class="cbody">
+    <div class="atbar">
+      <label class="switch" id="pa-sw"><i></i><span id="pa-label">avisos: apagados</span></label>
+      <span class="muted" style="font-size:12px">Te llega un mensaje privado de Nostr (NIP-17) cuando un rig del mercado de MRR baja de tu umbral. Uno por rig mientras siga por debajo; vuelve a avisar si sube y cruza otra vez.</span>
+    </div>
+    <div class="pa-grid">
+      <label>Tu npub (quien recibe los avisos)<input id="pa-to" autocomplete="off" spellcheck="false" placeholder="npub1…"></label>
+      <label>Umbral (<span class="pa-unit">sats</span>/TH/día)<input id="pa-thr" type="number" min="0" step="any" placeholder="p. ej. 2500"></label>
+      <label class="chk"><input type="checkbox" id="pa-fee"> comparar con la comisión de MRR incluida</label>
+      <label>TH/s mínimos (opcional)<input id="pa-minth" type="number" min="0" step="any" placeholder="0 = cualquiera"></label>
+      <label>Horas mínimas que se puede alquilar (opcional)<input id="pa-minh" type="number" min="0" step="any" placeholder="0 = cualquiera"></label>
+      <label>Mirar cada (minutos)<input id="pa-int" type="number" min="1" max="1440" step="1"></label>
+      <label class="chk"><input type="checkbox" id="pa-online"> solo rigs en línea</label>
+      <label class="chk"><input type="checkbox" id="pa-favs"> solo mis favoritos ⭐</label>
+      <label>Relays (uno por línea)<textarea id="pa-relays" spellcheck="false"></textarea></label>
+    </div>
+    <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="small" id="pa-save">Guardar</button>
+      <button class="small" id="pa-test" title="Te manda ahora un mensaje de prueba a tu npub">Enviar prueba</button>
+      <button class="small" id="pa-check" title="Mira el mercado ahora en vez de esperar al siguiente turno">Comprobar ahora</button>
+      <span class="muted" style="font-size:12px">Remite: la clave Nostr propia del panel <span class="pa-npub" id="pa-from">(se crea al activar)</span>
+        <button class="small" id="pa-regen" title="Crea una clave nueva para el panel; los avisos llegarán desde otro npub">Regenerar</button></span>
+    </div>
+    <div class="pa-res muted" id="pa-res" style="font-size:12.5px;margin-top:8px"></div>
     </div>
   </section>
 
@@ -737,10 +774,50 @@ $('#btn-addr').onclick = async()=>{ const v=$('#rent-addr').value.trim();
 $('#btn-logs').onclick = loadLogs;
 window.addEventListener('resize', ()=>state && drawChart(state.history||[]));
 
+// ---------------------------------------------------------------- price alerts by Nostr DM (1.5.0)
+let PA=null;
+function paFill(v){
+  PA=v; if(!v||!v.enabled){ $('#pa-card').style.display='none'; return; }
+  $('#pa-card').style.display='';
+  const s=v.settings, on=!!s.enabled;
+  $('#pa-sw').className='switch'+(on?' on':''); $('#pa-label').textContent='avisos: '+(on?'encendidos':'apagados');
+  document.querySelectorAll('.pa-unit').forEach(e=>e.textContent=(state&&state.labels&&state.labels.unit)||'sats');
+  const set=(id,val)=>{ const e=$(id); if(!e.dataset.dirty) e.value=val; };
+  set('#pa-to', s.recipient||''); set('#pa-thr', s.threshold||''); set('#pa-minth', s.min_th||''); set('#pa-minh', s.min_hours||'');
+  set('#pa-int', s.interval_min||5); set('#pa-relays', (s.relays||[]).join('\n'));
+  $('#pa-fee').checked=!!s.with_fee; $('#pa-online').checked=!!s.online_only; $('#pa-favs').checked=!!s.favorites_only;
+  $('#pa-from').textContent=v.panel_npub||'(se crea al activar)'; $('#pa-regen').style.display=v.panel_npub?'':'none';
+  $('#pa-info').textContent=on?(v.ready?'⚠ '+v.ready:(v.below?v.below+' rig(s) por debajo ahora':'vigilando')):'apagado';
+  const l=v.last; let h='';
+  if(v.ready && on) h+='<span class="bad">No puede avisar: '+esc(v.ready)+'.</span> ';
+  if(l){ const t=new Date(l.at*1000).toLocaleString([], {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    if(l.kind==='test') h+=`Prueba enviada ${t}: `;
+    else h+=`Última comprobación con novedades ${t}: ${l.below} por debajo, ${l.new} nuevo(s)${l.new?', ':''}`;
+    if(l.relays&&l.relays.length) h+=l.relays.map(r=>`<span class="${r.ok?'ok':'bad'}" title="${esc(r.msg||'')}">${esc(r.url.replace(/^wss?:\/\//,''))} ${r.ok?'✓':'✗'}</span>`).join(' · ');
+    if(l.error) h+=' <span class="bad">'+esc(l.error)+'</span>'; }
+  $('#pa-res').innerHTML=h;
+}
+async function loadAlerts(){ try{ paFill(await api('/api/alerts')); }catch(e){ /* read-only or off */ } }
+['#pa-to','#pa-thr','#pa-minth','#pa-minh','#pa-int','#pa-relays'].forEach(id=>{ const e=$(id); if(e) e.addEventListener('input',()=>e.dataset.dirty='1'); });
+function paBody(){ return {recipient:$('#pa-to').value.trim(), threshold:$('#pa-thr').value||0, with_fee:$('#pa-fee').checked,
+  min_th:$('#pa-minth').value||0, min_hours:$('#pa-minh').value||0, interval_min:$('#pa-int').value||5,
+  online_only:$('#pa-online').checked, favorites_only:$('#pa-favs').checked, relays:$('#pa-relays').value}; }
+function paClean(){ ['#pa-to','#pa-thr','#pa-minth','#pa-minh','#pa-int','#pa-relays'].forEach(id=>delete $(id).dataset.dirty); }
+$('#pa-save').onclick=async()=>{ try{ const v=await api('/api/alerts', paBody()); paClean(); paFill(Object.assign({enabled:true},v)); toast('Avisos: guardado'); }catch(e){ toast(e.message,true); } };
+$('#pa-sw').onclick=async()=>{ const on=!(PA&&PA.settings&&PA.settings.enabled);
+  try{ const v=await api('/api/alerts', Object.assign(paBody(),{enabled:on})); paClean(); paFill(Object.assign({enabled:true},v)); toast(on?'Avisos encendidos':'Avisos apagados'); }catch(e){ toast(e.message,true); } };
+$('#pa-test').onclick=async()=>{ $('#pa-res').textContent='enviando…';
+  try{ const v=await api('/api/alerts/test',{}); paFill(Object.assign({enabled:true},v)); toast('Prueba enviada: mira tus mensajes de Nostr'); }catch(e){ toast(e.message,true); loadAlerts(); } };
+$('#pa-check').onclick=async()=>{ $('#pa-res').textContent='mirando el mercado…';
+  try{ const v=await api('/api/alerts/check',{}); paFill(Object.assign({enabled:true},v)); const r=v.result||{};
+    toast(r.skipped?('No mira: '+r.skipped):(r.new?(r.new+' rig(s) nuevo(s) por debajo: aviso enviado'):('Nada nuevo ('+(r.below||0)+' por debajo, ya avisados)'))); }catch(e){ toast(e.message,true); } };
+$('#pa-regen').onclick=async()=>{ if(!await confirmDlg('<b>Regenerar la clave del panel</b><p class="muted">Los avisos llegarán desde un npub nuevo; si seguías al anterior, tendrás que seguir al nuevo.</p>')) return;
+  try{ paFill(Object.assign({enabled:true}, await api('/api/alerts/regenerate',{}))); toast('Clave nueva'); }catch(e){ toast(e.message,true); } };
+
 // ---------------------------------------------------------------- collapsible sections
 // Title only by default; each section's open/closed state is remembered in this browser.
 const COLL_KEY='mrrcc.coll.';
-const COLL_ON_OPEN={logs:()=>loadLogs()};
+const COLL_ON_OPEN={logs:()=>loadLogs(), alerts:()=>loadAlerts()};
 function collGet(k){ try{ return localStorage.getItem(COLL_KEY+k); }catch(e){ return null; } }
 function collSet(k,v){ try{ localStorage.setItem(COLL_KEY+k, v?'1':'0'); }catch(e){} }
 document.querySelectorAll('.coll').forEach(c=>{
@@ -757,8 +834,8 @@ document.querySelectorAll('.coll').forEach(c=>{
   t.addEventListener('keydown',ev=>{ if((ev.key==='Enter'||ev.key===' ')&&ev.target===t){ ev.preventDefault(); toggle(); } });
 });
 
-Promise.all([refresh(), loadHistory()]).then(loadMarket); loadLogs();
-setInterval(refresh, 15000); setInterval(loadMarket, 5*60000); setInterval(loadLogs, 60000);
+Promise.all([refresh(), loadHistory()]).then(loadMarket).then(loadAlerts); loadLogs();
+setInterval(refresh, 15000); setInterval(loadMarket, 5*60000); setInterval(loadLogs, 60000); setInterval(loadAlerts, 60000);
 // ---------------------------------------------------------------- rental audit (audit.py)
 let audit=null;
 const PAL=['#ffb347','#19d7ff','#3cf59a','#ff6bd6','#ffd23f','#a98bff','#ff7a45','#7eeaff','#9be15d','#ff3b5c','#f7931a','#5ad1c8'];
