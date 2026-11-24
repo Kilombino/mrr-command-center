@@ -4,7 +4,7 @@
 # 3.14: DATUM answers with SHA-256 digest auth, which urllib supports from 3.14 on.
 FROM python:3.14-slim
 WORKDIR /app
-COPY dashboard.py mrr_bot.py audit.py pyblock.py tickets.py nostr.py p2hash.py alerts.py LICENSE README.md ./
+COPY dashboard.py mrr_bot.py audit.py pyblock.py tickets.py nostr.py p2hash.py alerts.py gateways.py LICENSE README.md ./
 COPY www ./www
 ENV MRR_DATA_DIR=/data MRR_PACKAGED=1 PYTHONUNBUFFERED=1
 RUN mkdir -p /data && chown 1000:1000 /data

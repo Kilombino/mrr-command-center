@@ -3,6 +3,7 @@ __pycache__
 config.json
 state.json
 history.json
+history_gw.json
 .git
 docs
 assets

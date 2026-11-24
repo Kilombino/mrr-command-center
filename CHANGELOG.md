@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.6.0 (24 Nov 2026)
+
+- **Several DATUM gateways.** Besides the main one (the gateway API the panel always read:
+  config `gateway`, or the one the platform wires in when packaged), the saved public
+  stratums (`pyblock.gateways`) can carry a status page of their own (`api`: url, user,
+  password): a second DATUM, or each pool's gateway of a PyBLØCK PATUM install (stratum
+  23334, 23335…, status page 7152, 7153…, the same API as DATUM). The panel reads them all
+  every 10 s, keeps each one's hashrate history (`history_gw.json`) and stores their
+  connections in the audit, with the gateway's key in front of each connection id so two
+  gateways never mix. A rental is measured by its worker on whichever gateway it reaches.
+- **A rental shows where it mines.** The audit's passes already read every rental's pool:
+  its host and port are now kept (`rental_worker.pool_host/pool_port`) and each rental shows
+  `→ host:port` and its gateway. Without the audit the panel reads them itself, at most 10 a
+  refresh and each again after 30 min (MRR's limit is 100 calls a minute). A rental belongs to
+  the gateway whose stratum port it points at (and host, when two share a port); with a single
+  gateway everything is that one, as before.
+- **View selector at the top** ("Todos" and each gateway), shown when there is more than one:
+  it filters the rentals, the KPIs, the hashrate chart, the ASICs table and the audit
+  ("¿llega lo que pagas?", verdicts, per-rental chart) to one gateway; a gateway with nothing
+  rented shows "nada alquilado", and one without a status page says so instead of showing
+  another gateway's data. "Todos" adds them up. Kick acts on the client's own gateway.
+- New collapsible card **"Tus gateways"**: each gateway with its stratum, status page, state
+  (TH/s, ASICs) and whether PyBLØCK/P2Hash orders go to it; save or edit one (saving a saved
+  stratum changes only that one: its name and page; an empty password keeps the saved one) or
+  remove one. The main gateway can't be removed. `POST /api/gateways` (`api_url`, `api_user`,
+  `api_password` besides 1.4.5's `action`, `gateway`, `name`; `primary` marks which saved
+  stratum the main gateway's API belongs to). Status-page passwords live only in config.json
+  (mode 600) and never appear in a response.
+- `profile_gateway()`: where an MRR pool profile mines (its first pool, from MRR's list or
+  `/account/profile/<id>`, kept 10 min) and which gateway that is, for the packaged app's
+  profile selector.
+
 ## 1.5.0 (24 Nov 2026)
 
 - **Price alerts by private Nostr message.** When a rig on MRR's market costs less than a

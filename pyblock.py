@@ -99,7 +99,7 @@ def gateway_list(p):
     before 1.4.5 (only `gateway`) gives a list of one. The active one is the one orders use."""
     out, seen = [], set()
 
-    def add(name, g):
+    def add(name, g, extra=None):
         if isinstance(g, str):
             g = parse_hostport(g)
         if not g or not g.get("host") or not g.get("port"):
@@ -108,16 +108,48 @@ def gateway_list(p):
         if key in seen:
             return
         seen.add(key)
-        out.append({"name": str(name or "").strip()[:40], "host": str(g["host"]), "port": int(g["port"])})
+        e = {"name": str(name or "").strip()[:40], "host": str(g["host"]), "port": int(g["port"])}
+        if extra:
+            api = clean_api(extra.get("api"))
+            if api:
+                e["api"] = api          # its DATUM status page, for a gateway other than the main one
+            if extra.get("primary"):
+                e["primary"] = True     # the one the panel's own gateway API (config "gateway") belongs to
+        out.append(e)
 
     for g in p.get("gateways") or []:
         if isinstance(g, dict):
-            add(g.get("name"), g.get("hostport") or g)
+            add(g.get("name"), g.get("hostport") or g, g)
         else:
             add("", g)
     active = p.get("gateway") or {}
     if active.get("host"):
         add("", active)
+    return out
+
+
+API_URL_RE = re.compile(r"^https?://[A-Za-z0-9.\-\[\]:]+(:[0-9]{1,5})?/?$")
+
+
+def clean_api(a):
+    """A gateway's status page/API ({"url", "user", "password"}) as saved, or None."""
+    if not isinstance(a, dict) or not API_URL_RE.match(str(a.get("url") or "").strip()):
+        return None
+    return {"url": str(a["url"]).strip().rstrip("/"), "user": str(a.get("user") or "admin").strip()[:64] or "admin",
+            "password": str(a.get("password") or "")}
+
+
+def public_gateways(lst):
+    """The saved gateways for an API response: never the status page's password."""
+    out = []
+    for g in lst or []:
+        e = {k: v for k, v in g.items() if k != "api"}
+        e["hostport"] = hostport(g)
+        api = g.get("api")
+        e["api_url"] = (api or {}).get("url") or ""
+        e["api_user"] = (api or {}).get("user") or ""
+        e["has_api"] = bool(api)
+        out.append(e)
     return out
 
 
@@ -137,24 +169,43 @@ def check_gateway(v):
     return g
 
 
-def edit_gateways(raw, action, gateway, name=""):
-    """Change the saved stratums in a raw config.json dict (in place):
-    "add" saves one (name optional; adding a saved one renames it), "use" makes a saved one
-    the active `pyblock.gateway`, "remove" forgets one (not the active one). Returns the list."""
+def primary_index(lst):
+    """Which saved gateway the panel's own gateway API belongs to: the one marked, else the first."""
+    return next((i for i, g in enumerate(lst) if g.get("primary")), 0)
+
+
+def edit_gateways(raw, action, gateway, name="", api=None):
+    """Change the saved gateways in a raw config.json dict (in place):
+    "add" saves one or, when it is already saved, changes only that one: its name and, when
+    `api` is given, its status page ({"url", "user", "password"}; an empty password keeps the
+    saved one, an empty url drops the page). "use" makes a saved one the active
+    `pyblock.gateway` (PyBLØCK and P2Hash orders), "primary" marks the one the panel's own
+    gateway belongs to, "remove" forgets one (neither the active one nor the main one).
+    Returns the list."""
     p = raw.setdefault("pyblock", {})
     lst = gateway_list(settings(raw))
     if action == "add":
         g = check_gateway(gateway)
         key = hostport(g).lower()
-        for x in lst:
-            if hostport(x).lower() == key:
-                x["name"] = str(name or "").strip()[:40] or x["name"]
-                break
-        else:
-            lst.append({"name": str(name or "").strip()[:40], **g})
+        hit = next((x for x in lst if hostport(x).lower() == key), None)
+        if hit is None:
+            hit = {"name": "", **g}
+            lst.append(hit)
+        hit["name"] = str(name or "").strip()[:40] or hit["name"]
+        if api is not None:
+            url = str((api or {}).get("url") or "").strip()
+            if not url:
+                hit.pop("api", None)
+            else:
+                old = hit.get("api") or {}
+                new = clean_api({"url": url, "user": (api or {}).get("user") or old.get("user"),
+                                 "password": (api or {}).get("password") or old.get("password") or ""})
+                if not new:
+                    raise ValueError("la página de estado va como http://host:puerto (la de su DATUM, p. ej. :7152)")
+                hit["api"] = new
         if not (p.get("gateway") or {}).get("host"):
             p["gateway"] = dict(g)          # the first one saved is the active one
-    elif action in ("use", "remove"):
+    elif action in ("use", "remove", "primary"):
         g = parse_hostport(gateway)
         hit = g and next((x for x in lst if hostport(x).lower() == hostport(g).lower()), None)
         if not hit:
@@ -162,9 +213,15 @@ def edit_gateways(raw, action, gateway, name=""):
         active = hostport(p.get("gateway") or {}).lower()
         if action == "use":
             p["gateway"] = {"host": hit["host"], "port": hit["port"]}
+        elif action == "primary":
+            for x in lst:
+                x.pop("primary", None)
+            hit["primary"] = True
         else:
             if hostport(hit).lower() == active:
                 raise ValueError("ese es el que está en uso: elige otro antes de quitarlo")
+            if lst.index(hit) == primary_index(lst):
+                raise ValueError("ese es tu gateway principal (el que el panel lee siempre): no se puede quitar")
             lst.remove(hit)
     else:
         raise ValueError("acción desconocida")
@@ -1110,7 +1167,7 @@ class PyBlock:
             "enabled": bool(p.get("enabled", True)), "error": err, "catalog": cat,
             "gateway": f"{p['gateway']['host']}:{int(p['gateway']['port'] or 0)}" if p["gateway"].get("host") else "",
             "backup": f"{p['backup']['host']}:{int(p['backup']['port'] or 0)}" if p["backup"].get("host") else "",
-            "gateways": [dict(g, hostport=hostport(g)) for g in p["gateways"]],
+            "gateways": public_gateways(p["gateways"]),
             "address": addr, "address_source": src, "orders": orders,
             "totals": {"active": len(live), "th": sum(o["th"] or 0 for o in live),
                        "live_ths": sum(o["live_ths"] or 0 for o in live),

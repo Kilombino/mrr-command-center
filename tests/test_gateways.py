@@ -43,6 +43,9 @@ class GatewayListTests(unittest.TestCase):
         self.assertEqual(pyb.settings(raw)["gateway"], {"host": "pool.example.com", "port": 23335})
         with self.assertRaises(ValueError):
             pyb.edit_gateways(raw, "remove", "pool.example.com:23335")         # the active one
+        with self.assertRaises(ValueError):
+            pyb.edit_gateways(raw, "remove", "pool.example.com:23334")         # the main gateway (the first)
+        pyb.edit_gateways(raw, "primary", "pool.example.com:23335")
         pyb.edit_gateways(raw, "remove", "pool.example.com:23334")
         self.assertEqual([pyb.hostport(g) for g in raw["pyblock"]["gateways"]], ["pool.example.com:23335"])
         for bad in ("192.168.1.10:23338", "localhost:1", "nope", "pool.example.com:0"):

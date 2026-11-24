@@ -53,6 +53,15 @@ addresses, IPs, rental numbers and balances masked.
 
 ## How it works
 
+### Several gateways (PATUM)
+
+If you run more than one DATUM gateway (a second one, or a [PyBLØCK PATUM](https://b.pyblock.xyz:8443/patum.php)
+install, which runs one gateway per pool: stratum 23334, 23335…, status page 7152, 7153…),
+save each in the card **Tus gateways** with its public stratum and its status page. The
+panel then reads them all, tells which gateway each MRR rental mines to by the port its pool
+points at, and a selector at the top shows one gateway at a time (rentals, chart, ASICs and
+audit) or all of them together. With a single gateway nothing changes.
+
 ### Rental audit
 
 MRR shows how much hashrate *it* measured for each rental. The audit checks that
@@ -395,6 +404,7 @@ Keys marked *market* decide which rigs the market card lists (and the upstream b
 | `pyblock.enabled` | true | show PyBLØCK packages and allow manual orders |
 | `pyblock.api` | `https://b.pyblock.xyz:8443/api/market/v1.php` | PyBLØCK Market API base |
 | `pyblock.gateway.host/port` | | public stratum of your DATUM gateway (required to order) |
+| `pyblock.gateways` | | saved gateways `[{name, host, port, api?, primary?}]`: public stratums to choose for orders and, with `api` (`{url, user, password}`, a DATUM status page), extra gateways the panel reads (1.6.0) |
 | `pyblock.backup.host/port` | | optional second gateway |
 | `pyblock.address` | `""` | payout address for PyBLØCK orders, `""` = `rent_address`, then the profile's |
 | `pyblock.worker_prefix` | `pyb` | worker = prefix + 6 random hex per order |
