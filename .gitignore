@@ -3,6 +3,8 @@ state.json
 state.json.tmp
 history.json
 history.json.tmp
+history_gw.json
+history_gw.json.tmp
 .mrr.lock
 __pycache__/
 audit.db
