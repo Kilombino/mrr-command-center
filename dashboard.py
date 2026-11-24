@@ -492,7 +492,6 @@ def poll_gateway():
         if data:
             history.append({"t": t, "th": round(data["total_th"], 3), "clients": data["subscribed"]})
             del history[:-HISTORY_MAX]
-    poll_others(c, t)
 
 
 def poll_others(c, t):
@@ -524,6 +523,17 @@ def poll_others(c, t):
     with lock:
         for k in [k for k in cache["gw"] if k not in keep]:
             del cache["gw"][k]           # removed, or its status page taken off
+
+
+def others_loop():
+    """The other gateways, read in their own loop: one whose page does not answer (two reads
+    of up to 8 s each) never slows down the main gateway's reads or the audit's samples."""
+    while True:
+        try:
+            poll_others(cfg(), int(time.time()))
+        except Exception as e:      # never take the dashboard down
+            print(f"[other gateways failed: {e}]", file=sys.stderr, flush=True)
+        time.sleep(GATEWAY_POLL)
 
 
 def gateway_loop():
@@ -1934,6 +1944,7 @@ def main():
                                 analyse=pyb_analyse, on_finish=p2h_finished)
         P2H[0].start()
     threading.Thread(target=gateway_loop, daemon=True).start()
+    threading.Thread(target=others_loop, daemon=True, name="other gateways").start()
     if not c.get("read_only"):
         # next to config.json (MRR_DATA_DIR in the packaged app), so updates keep the key
         ALERT[0] = alerts_mod.PriceAlert(alert_settings, alert_market, alert_lists, alert_ctx,
