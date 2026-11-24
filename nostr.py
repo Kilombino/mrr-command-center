@@ -338,7 +338,7 @@ def _convertbits(data, frombits, tobits, pad):
     if pad and bits:
         out.append((acc << (tobits - bits)) & maxv)
     elif not pad and (bits >= frombits or (acc << (tobits - bits)) & maxv):
-        raise ValueError("bech32: bad padding")
+        raise ValueError("relleno incorrecto")
     return out
 
 
@@ -352,20 +352,20 @@ def bech32_decode(s, hrp):
     """The 32-byte payload (hex) of a bech32 string with that prefix, or ValueError."""
     s = (s or "").strip()
     if s.lower() != s and s.upper() != s:
-        raise ValueError("bech32: mixed case")
+        raise ValueError("mayúsculas y minúsculas mezcladas")
     s = s.lower()
     pos = s.rfind("1")
     if pos < 1 or s[:pos] != hrp or len(s) - pos < 7:
-        raise ValueError(f"not a {hrp}")
+        raise ValueError(f"no es un {hrp}")
     try:
         data = [_B32.index(c) for c in s[pos + 1:]]
     except ValueError:
-        raise ValueError("bech32: bad character")
+        raise ValueError("carácter no válido")
     if _polymod(_hrp_expand(hrp) + data) != 1:
-        raise ValueError("bech32: bad checksum")
+        raise ValueError("suma de control incorrecta")
     raw = bytes(_convertbits(data[:-6], 5, 8, False))
     if len(raw) != 32:
-        raise ValueError("bech32: payload is not 32 bytes")
+        raise ValueError("no son 32 bytes")
     return raw.hex()
 
 
