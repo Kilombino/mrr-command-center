@@ -29,6 +29,7 @@ import audit as audit_mod  # noqa: E402
 import pyblock as pyb_mod  # noqa: E402
 import tickets as tickets_mod  # noqa: E402
 import p2hash as p2h_mod  # noqa: E402
+import alerts as alerts_mod  # noqa: E402
 
 WWW = os.path.join(HERE, "www")
 DATA = mrr_bot.DATA_DIR
@@ -85,6 +86,7 @@ PYB = [None]              # pyblock.PyBlock instance when enabled
 PYB_PREFIX = ["pyb"]
 P2H = [None]              # p2hash.P2Hash instance when enabled
 P2H_PREFIX = ["p2h"]
+ALERT = [None]            # alerts.PriceAlert (price alerts by Nostr DM)
 LOGIN_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MRR Command Center</title><link rel="icon" href="/favicon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600&family=JetBrains+Mono&display=swap">
@@ -759,13 +761,42 @@ def rig_graph(rig_id, hours=24, points=48):
     return res
 
 
+_market_rigs = {"at": 0, "rigs": None, "error": None}
+_market_lock = threading.Lock()
+
+
+def market_rigs(max_age, api=None):
+    """MRR's listing of rigs for our algorithm (up to 3 calls), shared by the market card and
+    the price alerts: whoever asks within `max_age` seconds of the last fetch gets that one.
+    Returns (rigs, error); rigs is None only if there was never a good listing."""
+    with _market_lock:
+        if _market_rigs["rigs"] is not None and time.time() - _market_rigs["at"] < max_age:
+            return _market_rigs["rigs"], None
+        c = cfg()
+        own = api is None
+        api = api or mrr_api(c)
+        try:
+            rigs = api.rigs(c["algo"])
+            _market_rigs.update(at=time.time(), rigs=rigs, error=None)
+            return rigs, None
+        except Exception as e:
+            _market_rigs["error"] = str(e)[:200]
+            if not own:
+                raise
+            return None, _market_rigs["error"]
+        finally:
+            if own:
+                mrr_bot.save_state(api.state)
+
+
 def market_view(budget=None):
     c = cfg()
     api = mrr_api(c)
     confirmed, _ = api.balance(c["currency"])
     market = float(api.algo_stats(c["algo"])["stats"]["prices"]["last_10"]["amount"])
     rejected = []
-    cands = mrr_bot.candidate_rigs(c, api.rigs(c["algo"]), market, rejected)
+    rigs, _ = market_rigs(MRR_CACHE_TTL, api)
+    cands = mrr_bot.candidate_rigs(c, rigs, market, rejected)
     budget = budget if budget is not None else max(0.0, confirmed - c["reserve_btc"])
     fee = 1 + c["fee_rate"]
     rows = []
@@ -1246,8 +1277,65 @@ def gateway_log(lines=40):
 
 
 # ----------------------------------------------------------------------------- http
+# ----------------------------------------------------------------------------- price alerts (Nostr DM)
+def c_ro():
+    return bool(cfg().get("read_only"))
+
+
+def alert_settings():
+    return alerts_mod.settings(cfg())
+
+
+def alert_market():
+    """The listing for the alerts: the market card's if it is fresh enough, else one fetch."""
+    s = alert_settings()
+    rigs, err = market_rigs(max(60, int(s["interval_min"]) * 60 - 5))
+    if rigs is not None and _market_rigs["at"] and time.time() - _market_rigs["at"] > 3 * 3600:
+        return None, "el listado de MRR tiene más de 3 h"
+    return rigs, err
+
+
+def alert_lists():
+    if not AUDIT[0]:
+        return [], []
+    h = AUDIT[0].history()
+    return [f["rig_id"] for f in h["favorites"]], [b["rig_id"] for b in h["blacklist"]]
+
+
+def alert_ctx():
+    c = cfg()
+    return {"currency": c["currency"], "fee_rate": float(c.get("fee_rate") or 0),
+            "unit": c.get("unit_label") or "sats", "units": mrr_bot.UNIT}
+
+
+def edit_alerts(updates):
+    """Save the alert settings given (validated) into config.json "price_alert"."""
+    try:
+        clean = alerts_mod.clean(updates)
+    except ValueError as e:
+        raise RuntimeError(str(e))
+    with open(mrr_bot.CONFIG_PATH) as f:
+        raw = json.load(f)
+    pa = dict(raw.get("price_alert") or {})
+    pa.update(clean)
+    merged = alerts_mod.settings({"price_alert": pa})
+    if merged["enabled"]:
+        why = alerts_mod.check_ready(merged)
+        if why:
+            raise RuntimeError(f"no se puede activar: {why}")
+    raw["price_alert"] = pa
+    tmp = mrr_bot.CONFIG_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(raw, f, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, mrr_bot.CONFIG_PATH)
+    if merged["enabled"] and ALERT[0]:
+        ALERT[0].key(create=True)      # the panel's npub exists as soon as alerts are on
+    return merged
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.4.5"
+    server_version = "mrr-dashboard/1.5.0"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):
@@ -1373,6 +1461,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"enabled": False})
                 mrr, mrr_err = mrr_overview()
                 return self._json(dict(AUDIT[0].view((mrr or {}).get("rentals") or []), enabled=True, mrr_error=mrr_err))
+            if url.path == "/api/alerts":
+                if not ALERT[0] or c_ro():
+                    return self._json({"enabled": False})
+                return self._json(dict(ALERT[0].view(), enabled=True))
             if url.path == "/api/market":
                 b = q.get("budget", [None])[0]
                 return self._json(market_view(float(b) if b else None))
@@ -1445,11 +1537,33 @@ class Handler(BaseHTTPRequestHandler):
             if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address",
                                                      "/api/pyblock/order", "/api/pyblock/gateways", "/api/tickets/settings", "/api/own-workers",
                                                      "/api/tickets/mark")
-                                     or self.path.startswith("/api/p2hash/") or (
+                                     or self.path.startswith(("/api/p2hash/", "/api/alerts")) or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
                 return self._json({"ok": False, "error": "read-only dashboard (read_only in config.json)"}, 403)
             if not c.get("bot_ui") and self.path in ("/api/bot", "/api/config"):
                 return self._json({"ok": False, "error": "the bot is switched off here (bot_ui in config.json)"}, 403)
+            if self.path.startswith("/api/alerts"):
+                if not ALERT[0]:
+                    return self._json({"ok": False, "error": "alerts are off"}, 400)
+                try:
+                    if self.path == "/api/alerts":
+                        edit_alerts(body)
+                    elif self.path == "/api/alerts/test":
+                        if not alert_settings()["recipient_hex"]:
+                            raise RuntimeError("primero guarda tu npub")
+                        out = ALERT[0].test()
+                        if not out["ok"]:
+                            return self._json({"ok": False, "error": "ningún relay aceptó el mensaje",
+                                               "relays": out["relays"]}, 502)
+                    elif self.path == "/api/alerts/regenerate":
+                        ALERT[0].regenerate()
+                    elif self.path == "/api/alerts/check":
+                        return self._json(dict(ok=True, result=ALERT[0].check(), **ALERT[0].view()))
+                    else:
+                        return self._json({"error": "not found"}, 404)
+                except (RuntimeError, ValueError) as e:
+                    return self._json({"ok": False, "error": str(e)}, 400)
+                return self._json(dict(ok=True, **ALERT[0].view()))
             if self.path == "/api/favorite":
                 if not AUDIT[0]:
                     return self._json({"error": "audit is off"}, 400)
@@ -1600,6 +1714,9 @@ def main():
                                 analyse=pyb_analyse, on_finish=p2h_finished)
         P2H[0].start()
     threading.Thread(target=gateway_loop, daemon=True).start()
+    if not c.get("read_only") and c.get("api_key"):
+        ALERT[0] = alerts_mod.PriceAlert(alert_settings, alert_market, alert_lists, alert_ctx)
+        threading.Thread(target=ALERT[0].loop, daemon=True, name="price alerts").start()
     if AUDIT[0]:
         threading.Thread(target=ticket_loop, daemon=True).start()
     port = int(c.get("dashboard_port") or raw.get("dashboard_port") or 7160)
