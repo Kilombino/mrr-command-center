@@ -7,7 +7,6 @@ the MRR API (through mrr_bot.py) and controls the systemd timer.
 """
 import base64
 import hashlib
-import ipaddress
 import json
 import os
 import re
@@ -159,35 +158,30 @@ def cfg():
     return c
 
 
-HOSTPORT_RE = re.compile(r"^\[?([A-Za-z0-9.\-:]+?)\]?:([0-9]{1,5})$")
-
-
-def parse_hostport(v):
-    """'host:port' -> {"host", "port"}, or None when empty or malformed."""
-    m = HOSTPORT_RE.match((v or "").strip())
-    if not m or not 0 < int(m.group(2)) < 65536:
-        return None
-    return {"host": m.group(1), "port": int(m.group(2))}
+parse_hostport = pyb_mod.parse_hostport     # 'host:port' -> {"host", "port"} or None
 
 
 def set_pyblock(gateway, address):
-    """Save PyBLØCK's gateway (host:port, "" clears it) and payout address ("" = default)."""
-    gateway, address = (gateway or "").strip(), (address or "").strip()
-    gw = parse_hostport(gateway) if gateway else {"host": "", "port": 0}
-    if gw is None:
-        raise RuntimeError("el gateway va como host:puerto (tu IP pública o dominio y el puerto stratum de tu DATUM)")
-    host = gw["host"].lower()
-    try:
-        local = not ipaddress.ip_address(host).is_global
-    except ValueError:
-        local = host == "localhost" or host.endswith((".local", ".lan", ".internal"))
-    if gw["host"] and local:
-        raise RuntimeError("PyBLØCK mina desde internet: pon tu IP pública o dominio, no una dirección local")
+    """Save PyBLØCK's payout address ("" = default) and, when `gateway` is given, make that
+    host:port the active stratum, keeping it with the saved ones ("" clears the active one;
+    the saved list stays). The dropdown of saved stratums uses /api/pyblock/gateways."""
+    address = (address or "").strip()
     if address and not pyb_mod.ADDRESS_RE.match(address):
         raise RuntimeError("esa dirección de cobro no parece una dirección bitcoin válida")
+    if gateway is not None and (gateway or "").strip():
+        try:
+            pyb_mod.check_gateway(gateway)
+        except ValueError as e:
+            raise RuntimeError(str(e))
     def upd(raw):
         p = raw.setdefault("pyblock", {})
-        p["gateway"] = gw
+        if gateway is not None:
+            g = (gateway or "").strip()
+            if g:
+                pyb_mod.edit_gateways(raw, "add", g)
+                pyb_mod.edit_gateways(raw, "use", g)
+            else:
+                p["gateway"] = {"host": "", "port": 0}
         p["address"] = address
     write_raw(upd)
     return setup_view()
@@ -536,6 +530,7 @@ def pyblock_setup(c):
     g = p["gateway"]
     return {"enabled": bool(p.get("enabled", True)),
             "gateway": f"{g['host']}:{int(g['port'] or 0)}" if g.get("host") else "",
+            "gateways": [dict(x, hostport=pyb_mod.hostport(x)) for x in p["gateways"]],
             "address": (p.get("address") or "").strip()}
 
 
@@ -814,6 +809,23 @@ def plan_view():
 
 
 ADDRESS_RE = re.compile(r"^(bc1[02-9ac-hj-np-z]{11,87}|[13][1-9A-HJ-NP-Za-km-z]{25,34})$")
+
+
+def edit_pyblock_gateways(action, gateway, name=""):
+    """Saved public stratums for PyBLØCK / P2Hash (pyb_mod.edit_gateways), written to config.json."""
+    with open(mrr_bot.CONFIG_PATH) as f:
+        raw = json.load(f)
+    try:
+        lst = pyb_mod.edit_gateways(raw, action, gateway, name)
+    except ValueError as e:
+        raise RuntimeError(str(e))
+    tmp = mrr_bot.CONFIG_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(raw, f, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, mrr_bot.CONFIG_PATH)
+    return {"gateways": [dict(g, hostport=pyb_mod.hostport(g)) for g in lst],
+            "gateway": pyb_mod.hostport(raw["pyblock"].get("gateway") or {})}
 
 
 def set_rent_address(address):
@@ -1235,7 +1247,7 @@ def gateway_log(lines=40):
 
 # ----------------------------------------------------------------------------- http
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.4.4"
+    server_version = "mrr-dashboard/1.4.5"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):
@@ -1431,7 +1443,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": "tu clave API de MRR tiene Rent en "
                                    + perms.get("rent", "no") + ": vincula una con Rent: Yes para alquilar o extender desde aquí"}, 403)
             if c.get("read_only") and (self.path in ("/api/bot", "/api/config", "/api/rent", "/api/rent-address",
-                                                     "/api/pyblock/order", "/api/tickets/settings", "/api/own-workers",
+                                                     "/api/pyblock/order", "/api/pyblock/gateways", "/api/tickets/settings", "/api/own-workers",
                                                      "/api/tickets/mark")
                                      or self.path.startswith("/api/p2hash/") or (
                     self.path == "/api/extend" and not body.get("quote_only"))):
@@ -1506,6 +1518,9 @@ class Handler(BaseHTTPRequestHandler):
                     if self.path == "/api/pyblock/add":
                         o = PYB[0].add_external(str(body.get("order") or ""), str(body.get("worker") or ""))
                         return self._json({"ok": True, "order": o})
+                    if self.path == "/api/pyblock/gateways":
+                        return self._json(dict(ok=True, **edit_pyblock_gateways(
+                            str(body.get("action") or ""), str(body.get("gateway") or ""), str(body.get("name") or ""))))
                     if self.path == "/api/pyblock/forget":
                         PYB[0].forget(str(body.get("ref") or ""))
                         return self._json({"ok": True})

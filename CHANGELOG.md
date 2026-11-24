@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.5 (24 Nov 2026)
+
+- **Several public stratums for PyBLØCK and P2Hash.** `pyblock.gateways` keeps a list of
+  saved stratums (`{name, host, port}`, name optional), and `pyblock.gateway` stays the active
+  one, so older configs and everything that reads it work unchanged (a config with only
+  `gateway` is a list of one). A dropdown chooses which one new PyBLØCK orders and P2Hash
+  rentals use (P2Hash when `p2hash.gateway` is empty, as before): for instance two ports of
+  the same host running different gateways, one at a time, never mixed. Saving one with a
+  name, using it and removing it (not the one in use) are in the PyBLØCK box of the market,
+  or in the API key card of the packaged app. Only new orders change; running ones keep
+  mining where they started. Local addresses are refused, as before. "Probar gateway"
+  checks the one in use, and a cached result for another stratum is not shown for it.
+
 ## 1.4.4 (23 Nov 2026)
 
 - **Blacklist in the market.** A rig goes on it by itself when a rental of it ends with the

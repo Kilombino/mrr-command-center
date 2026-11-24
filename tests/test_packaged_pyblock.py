@@ -62,5 +62,14 @@ class PackagedPyblockTests(unittest.TestCase):
         self.assertEqual(dashboard.pyblock_setup(dashboard.cfg())["gateway"], "")
 
 
+    def test_keeps_saved_list(self):
+        dashboard.set_pyblock("mine.example.com:23334", "")
+        dashboard.set_pyblock("mine.example.com:23335", "")
+        p = dashboard.pyblock_setup(dashboard.cfg())
+        self.assertEqual(p["gateway"], "mine.example.com:23335")
+        self.assertEqual([g["hostport"] for g in p["gateways"]], ["mine.example.com:23334", "mine.example.com:23335"])
+        dashboard.set_pyblock(None, "")                 # only the address: the stratum stays
+        self.assertEqual(dashboard.pyblock_setup(dashboard.cfg())["gateway"], "mine.example.com:23335")
+
 if __name__ == "__main__":
     unittest.main()

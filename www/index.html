@@ -131,6 +131,8 @@ button.p2hbtn:hover{box-shadow:0 0 18px rgba(255,122,217,.6);color:#fff}
 .pybadd{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px;font-size:12.5px}
 .pybadd input{width:auto;flex:1 1 220px;min-width:160px;font:500 12px var(--mono);padding:5px 8px}
 .pybadd input.w{flex:0 1 170px}
+.pybadd select{font:500 12px var(--mono);padding:4px 6px;min-width:220px}
+.pybadd input.gwn{flex:0 1 130px;min-width:100px}
 .verd.pend{color:#d6b3ff;border-color:rgba(185,107,255,.6);background:rgba(185,107,255,.08)}
 .pybpay{text-align:center}.pybpay canvas{width:230px;height:230px;background:#fff;padding:8px;margin:8px auto;display:block}
 .pybpay .inv{font:500 11px var(--mono);word-break:break-all;color:var(--muted);cursor:pointer;max-height:70px;overflow:auto;border:1px dashed var(--line2);padding:6px;margin:6px 0}
@@ -293,10 +295,17 @@ body.nobot #hashcard{grid-column:span 12}
     <div id="apiinfo" class="muted">consultando…</div>
     <div class="row" style="margin-top:10px;gap:8px;align-items:center"><span class="muted">Perfil de pool para alquilar:</span>
       <select id="sel-profile" style="min-width:260px"></select> <button id="btn-profile" class="small">Usar este</button></div>
-    <div class="row" id="pyb-setup" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap;display:none"><span class="muted"><span class="tag pyb">PyBLØCK</span> stratum público de tu DATUM:</span>
-      <input id="pyb-set-gw" placeholder="tu-dominio-o-ip:puerto" autocomplete="off" spellcheck="false" style="min-width:220px">
-      <span class="muted">cobro (opcional):</span><input id="pyb-set-addr" placeholder="bc1… (vacío = la del perfil de MRR)" autocomplete="off" spellcheck="false" style="min-width:260px">
+    <div id="pyb-setup" style="display:none">
+    <div class="row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap" title="Puedes guardar varios stratums públicos (por ejemplo dos puertos del mismo host) y elegir a cuál van los pedidos nuevos de PyBLØCK y P2Hash. No se mezclan: se usa uno cada vez."><span class="muted"><span class="tag pyb">PyBLØCK</span> stratum público de tu DATUM:</span>
+      <select id="set-gw-sel" style="min-width:240px"></select> <button id="set-gw-use" class="small">Usar este</button> <button id="set-gw-del" class="small">Quitar</button></div>
+    <div class="row" style="margin-top:6px;gap:8px;align-items:center;flex-wrap:wrap"><span class="muted">guardar otro:</span>
+      <input id="set-gw-name" placeholder="nombre (DATUM, PATUM…)" autocomplete="off" spellcheck="false" style="min-width:210px;max-width:240px">
+      <input id="set-gw-new" placeholder="tu-dominio-o-ip:puerto" autocomplete="off" spellcheck="false" style="min-width:220px">
+      <button id="set-gw-add" class="small">Guardar otro</button>
+      <span class="muted" style="font-size:12px">Cambiarlo solo afecta a los pedidos nuevos; los que están en marcha siguen minando donde empezaron.</span></div>
+    <div class="row" style="margin-top:6px;gap:8px;align-items:center;flex-wrap:wrap"><span class="muted">cobro (opcional):</span><input id="pyb-set-addr" placeholder="bc1… (vacío = la del perfil de MRR)" autocomplete="off" spellcheck="false" style="min-width:260px">
       <button id="btn-pyb-set" class="small">Guardar</button></div>
+    </div>
   </section>
   <section class="kpis">
     <div class="kpi accent"><div class="l">Hashrate gateway</div><div class="v" id="k-hash">–</div><div class="s" id="k-hash-s">suma de clientes suscritos</div></div>
@@ -443,6 +452,13 @@ body.nobot #hashcard{grid-column:span 12}
       <h3 class="ctog"><span class="tag pyb">PyBLØCK</span> paquetes de hashrate <span id="pyb-promo"></span><span class="right muted" style="margin-left:auto;font:500 12px var(--mono);letter-spacing:0;text-transform:none" id="pyb-info"></span></h3>
       <div class="cbody">
       <div class="muted" style="font-size:12.5px;margin-bottom:8px" id="pyb-where"></div>
+      <div class="pybadd" id="pyb-gw-box" title="Puedes guardar varios stratums públicos (por ejemplo dos puertos del mismo host) y elegir a cuál van los pedidos nuevos de PyBLØCK y P2Hash. No se mezclan: se usa uno cada vez.">
+        <span style="color:#d6b3ff">Stratum para pedidos nuevos</span>
+        <select id="pyb-gw-sel"></select> <button class="small pybbtn" id="pyb-gw-use">Usar este</button> <button class="small" id="pyb-gw-del">Quitar</button>
+        <input id="pyb-gw-name" class="gwn" autocomplete="off" spellcheck="false" placeholder="nombre (opcional)">
+        <input id="pyb-gw-new" class="w" autocomplete="off" spellcheck="false" placeholder="host:puerto público">
+        <button class="small pybbtn" id="pyb-gw-add">Guardar otro</button>
+        <span class="muted" style="flex-basis:100%;font-size:11.5px">Cambiarlo solo afecta a los pedidos nuevos; los que están en marcha siguen minando donde empezaron.</span></div>
       <div class="pybadd" title="Un pedido que hiciste en la web o la app de PyBLØCK (cualquier forma de pago): el panel lo sigue como los suyos. El identificador es secreto: se guarda solo en pyblock.json y no se muestra.">
         <span style="color:#d6b3ff">Añadir orden de PyBLØCK</span>
         <input id="pyb-add-id" type="password" autocomplete="off" spellcheck="false" placeholder="pedido: id, enlace de seguimiento, enlace del market (…?o=) o m·xxxxxxxx" title="Paquetes: id o enlace de seguimiento. Market (rigs de mineros): el enlace secreto del pedido (market_minero.php?o=…) da contrato, cara y veredicto; con solo el id del minero (m·25f278f0) se sigue el alquiler de ese rig de forma estimada.">
@@ -1003,11 +1019,12 @@ async function loadSetup(openIfMissing){
       sel.innerHTML='<option value="">— elige un perfil —</option>'+r.profiles.map(x=>`<option value="${x.id}" ${String(x.id)===String(r.profile_id)?'selected':''}>${esc(x.name)} (${esc(x.algo)}${x.matches?'':' · otro algoritmo'})</option>`).join('');
     }catch(e){ sel.innerHTML=`<option value="">no se pudieron leer: ${esc(e.message)}</option>`; } }
   const P=S.pyblock||{}; $('#pyb-setup').style.display=P.enabled?'':'none';
-  if(P.enabled && document.activeElement!==$('#pyb-set-gw') && document.activeElement!==$('#pyb-set-addr')){ $('#pyb-set-gw').value=P.gateway||''; $('#pyb-set-addr').value=P.address||''; }
+  if(P.enabled){ gwFill('set-gw', P.gateways, P.gateway); gwWire('set-gw', ()=>{ loadSetup(false); refresh(true); });
+    if(document.activeElement!==$('#pyb-set-addr')) $('#pyb-set-addr').value=P.address||''; }
   if(openIfMissing && !S.linked) openSetup();
 }
 $('#btn-pyb-set').onclick=async()=>{
-  try{ await api('/api/setup/pyblock',{gateway:$('#pyb-set-gw').value, address:$('#pyb-set-addr').value}); toast('PyBLØCK: guardado'); loadSetup(false); refresh(true); }catch(e){ toast(e.message,true); } };
+  try{ await api('/api/setup/pyblock',{address:$('#pyb-set-addr').value}); toast('PyBLØCK: cobro guardado'); loadSetup(false); refresh(true); }catch(e){ toast(e.message,true); } };
 function openSetup(){ $('#setup-key').value=''; $('#setup-secret').value=''; $('#setup-err').textContent=''; $('#setup').showModal(); $('#setup-key').focus(); }
 $('#setup-cancel').onclick=()=>$('#setup').close();
 $('#setup-save').onclick=async()=>{ $('#setup-err').textContent='comprobando con MRR…';
@@ -1250,12 +1267,33 @@ function renderPyb(d){
       toast('PyBLØCK: pedido añadido ('+(r.order.status_label||r.order.status)+')'); refresh(); }
     catch(e){ toast(e.message,true); } finally{ ab.disabled=false; } }; }
 }
+// Saved public stratums (pyblock.gateways): pfx 'pyb-gw' in the market box, 'set-gw' in the
+// packaged setup card. Changing the active one only affects new orders and P2Hash rentals.
+function gwFill(pfx, gws, active){
+  const sel=$('#'+pfx+'-sel'); if(!sel || document.activeElement===sel) return;
+  const keep=sel.value;
+  sel.innerHTML=(gws||[]).length ? gws.map(g=>`<option value="${esc(g.hostport)}">${g.hostport===active?'● ':''}${esc(g.name?g.name+' · ':'')}${esc(g.hostport)}${g.hostport===active?' (en uso)':''}</option>`).join('')
+    : '<option value="">— ninguno guardado —</option>';
+  sel.value=(gws||[]).some(g=>g.hostport===keep)?keep:(active||'');
+}
+function gwWire(pfx, after){
+  const b=$('#'+pfx+'-use'); if(!b || b.dataset.w) return; b.dataset.w=1;
+  const go=async(action, gateway, name, msg)=>{ try{ await api('/api/pyblock/gateways',{action, gateway, name}); toast(msg); after(); }catch(e){ toast(e.message,true); } };
+  b.onclick=()=>{ const v=$('#'+pfx+'-sel').value; if(!v) return toast('No hay ninguno guardado',true); go('use', v, '', 'Stratum en uso: '+v+' (para los pedidos nuevos)'); };
+  $('#'+pfx+'-del').onclick=async()=>{ const v=$('#'+pfx+'-sel').value; if(!v) return;
+    if(!await confirmDlg('<b>Quitar el stratum guardado</b><p class="mono">'+esc(v)+'</p>')) return; go('remove', v, '', 'Quitado'); };
+  $('#'+pfx+'-add').onclick=async()=>{ const v=$('#'+pfx+'-new').value.trim(), n=$('#'+pfx+'-name').value.trim();
+    if(!v) return toast('Escribe host:puerto',true);
+    try{ await api('/api/pyblock/gateways',{action:'add', gateway:v, name:n}); $('#'+pfx+'-new').value=''; $('#'+pfx+'-name').value=''; toast('Guardado: '+v); after(); }catch(e){ toast(e.message,true); } };
+}
 function renderPybMarket(){
   const cat=pyb.catalog, u=L().unit;
   $('#pyb-where').innerHTML = pyb.gateway
     ? `Mina a tu gateway <span class="mono">${esc(pyb.gateway)}</span>${pyb.backup?' (respaldo <span class="mono">'+esc(pyb.backup)+'</span>)':''} como <span class="mono">${esc(pyb.address||'¿?')}.pyb…</span> <span class="muted">(${esc(pyb.address_source)})</span>
        <button class="small" id="pyb-gwtest" title="El mismo chequeo que hace PyBLØCK antes de aceptar un pedido (no crea nada)">Probar gateway</button> <span id="pyb-gwres">${gwRes(pyb.gateway_test)}</span>`
-    : '<span class="warn">Falta el stratum público de tu DATUM (host:puerto que se ve desde internet): ponlo arriba, en la tarjeta Clave API de MRR, fila PyBLØCK. Sin eso no se puede pedir.</span>';
+    : '<span class="warn">Falta el stratum público de tu DATUM (host:puerto que se ve desde internet): guárdalo arriba, en la tarjeta Clave API de MRR, fila PyBLØCK. Sin eso no se puede pedir.</span>';
+  if($('#pyb-setup')) $('#pyb-gw-box').style.display='none';   // packaged: managed in the setup card
+  else { gwFill('pyb-gw', pyb.gateways, pyb.gateway); gwWire('pyb-gw', ()=>refresh(true)); }
   const t=$('#pyb-gwtest'); if(t) t.onclick=async()=>{ $('#pyb-gwres').textContent='probando…'; try{ $('#pyb-gwres').innerHTML=gwRes(await api('/api/pyblock/gateway-test?force=1')); }catch(e){ $('#pyb-gwres').innerHTML='<span class="bad">'+esc(e.message)+'</span>'; } };
   if(!cat){ $('#pyb-info').textContent=''; $('#t-pyb tbody').innerHTML=`<tr><td colspan="10" class="bad">${esc(pyb.error||'catálogo no disponible')}</td></tr>`; return; }
   $('#pyb-info').textContent = (pyb.error?pyb.error+' · ':'')+'límites '+(cat.limits.min_hours||'?')+'–'+(cat.limits.max_hours||'?')+' h · máx '+(cat.limits.max_order_th||'?')+' TH/pedido · '+new Date(cat.at*1000).toLocaleTimeString();
