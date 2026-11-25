@@ -805,6 +805,9 @@ def profile_gateway(api, p, lst):
         return {"pool": "", "gw": None}
     if not port:
         return {"pool": "", "gw": None}
+    warn = gw_mod.pool_warning(host, port)
+    if warn:
+        return {"pool": f"{host}:{port}", "gw": None, "warn": warn}
     return {"pool": f"{host}:{port}", "gw": gw_mod.match(lst, host, port) if len(lst) > 1 else gw_mod.MAIN}
 
 
@@ -1303,7 +1306,7 @@ def edit_alerts(updates):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.6.0"
+    server_version = "mrr-dashboard/1.6.1"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):

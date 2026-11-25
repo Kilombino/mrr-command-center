@@ -108,5 +108,25 @@ class DashboardGatewayTests(unittest.TestCase):
             dashboard.edit_pyblock_gateways("add", "10.0.0.1:1")
 
 
+
+class PoolWarningTest(unittest.TestCase):
+    def test_datum_pool_port(self):
+        import gateways as g
+        self.assertEqual(g.pool_warning("datum.example.org", 28915), "datum_pool")
+        self.assertEqual(g.pool_warning("b.example.org", "28915"), "datum_pool")
+        self.assertIsNone(g.pool_warning("203.0.113.5", 23334))
+        self.assertIsNone(g.pool_warning("x", None))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class PoolWarningTest(unittest.TestCase):
+    def test_datum_pool_port(self):
+        import gateways as g
+        self.assertEqual(g.pool_warning("datum.example.org", 28915), "datum_pool")
+        self.assertEqual(g.pool_warning("b.example.org", "28915"), "datum_pool")
+        self.assertIsNone(g.pool_warning("203.0.113.5", 23334))
+        self.assertIsNone(g.pool_warning("x", None))

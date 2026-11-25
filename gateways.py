@@ -50,6 +50,21 @@ def public(lst, status=None):
     return out
 
 
+# The port of the DATUM protocol a gateway uses to talk to its pool (datum_pool_port in
+# datum_gateway). It is no stratum: a pool profile of MRR pointing there sends the rented
+# hashrate to no gateway of yours, and nothing reaches the panel.
+DATUM_POOL_PORT = 28915
+
+
+def pool_warning(host, port):
+    """Why a pool profile cannot be one of your gateways, or None."""
+    try:
+        port = int(port or 0)
+    except (TypeError, ValueError):
+        return None
+    return "datum_pool" if port == DATUM_POOL_PORT else None
+
+
 def match(lst, host, port):
     """Key of the gateway a pool (host, port) points at, or None. One gateway: always it."""
     if len(lst) == 1:
