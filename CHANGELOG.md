@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.1 (25 Nov 2026)
+
+- **A pool profile pointing at a pool's DATUM port is flagged.** Port 28915 is where a
+  gateway talks the DATUM protocol to its pool, not a stratum: a MRR pool profile pointing
+  there sends rented hashrate to no gateway of yours. `profile_gateway()` returns
+  `warn: "datum_pool"` (and no gateway) for it, and the packaged panel says so beside the
+  profile instead of offering to save the pool as one of your gateways.
+
 ## 1.6.0 (24 Nov 2026)
 
 - **Several DATUM gateways.** Besides the main one (the gateway API the panel always read:
