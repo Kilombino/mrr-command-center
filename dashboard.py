@@ -680,7 +680,8 @@ def set_profile(pid):
         if g:
             pyb_mod.edit_gateways(raw, "use", g["hostport"])
     write_raw(upd)
-    return dict(setup_view(), profile_pool=prof.get("pool") or "", profile_gw=prof.get("gw"))
+    return dict(setup_view(), profile_pool=prof.get("pool") or "", profile_gw=prof.get("gw"),
+                profile_warn=prof.get("warn"))
 
 
 def mrr_overview(force=False):

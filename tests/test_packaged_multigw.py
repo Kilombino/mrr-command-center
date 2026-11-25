@@ -25,6 +25,8 @@ PROFILES = [
      "pools": [{"priority": 1, "host": "x.example.com", "port": 4000},
                {"priority": 0, "host": "pool.example.com", "port": 23336}]},
     {"id": 4, "name": "sha", "algo": {"name": "sha256"}},
+    {"id": 5, "name": "Pool", "algo": {"name": "blake2b"},              # a pool's DATUM port
+     "pools": [{"priority": 0, "host": "datum.example.org", "port": 28915}]},
 ]
 
 
@@ -74,6 +76,8 @@ class PackagedProfileGatewayTests(unittest.TestCase):
         self.assertEqual(got[2], ("pool.example.com:23335", "pool.example.com:23335"))
         self.assertEqual(got[3], ("pool.example.com:23336", None))           # first by priority, not saved
         self.assertEqual(got[4], ("", None))                                 # other algorithm: not read
+        self.assertEqual(got[5], ("datum.example.org:28915", None))
+        self.assertEqual({p["id"]: p.get("warn") for p in r["profiles"]}[5], "datum_pool")
         dashboard.pool_profiles()
         self.assertEqual(self.api.calls.count("/account/profile/2"), 1)      # kept 10 min
 
@@ -91,6 +95,13 @@ class PackagedProfileGatewayTests(unittest.TestCase):
         self.assertEqual((r["profile_gw"], r["profile_pool"]), (None, "pool.example.com:23336"))
         with open(self.path) as f:
             self.assertEqual(json.load(f)["pyblock"]["gateway"], {"host": "pool.example.com", "port": 23335})
+
+    def test_a_pool_datum_port_is_flagged_not_offered_as_gateway(self):
+        with mock.patch.object(dashboard, "setup_view", lambda: {}):
+            r = dashboard.set_profile(5)
+        self.assertEqual((r["profile_gw"], r["profile_warn"]), (None, "datum_pool"))
+        with open(self.path) as f:                                         # orders keep their gateway
+            self.assertEqual(json.load(f)["pyblock"]["gateway"], {"host": "pool.example.com", "port": 23334})
 
     def test_platform_datum_is_the_main_gateway(self):
         lst = gw.listing(dashboard.cfg())

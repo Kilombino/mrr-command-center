@@ -311,6 +311,7 @@ body.nobot #hashcard{grid-column:span 12}
     <div id="apiinfo" class="muted">consultando…</div>
     <div class="row" style="margin-top:10px;gap:8px;align-items:center"><span class="muted">Perfil de pool para alquilar:</span>
       <select id="sel-profile" style="min-width:260px"></select> <button id="btn-profile" class="small">Usar este</button></div>
+      <div id="profile-warn" class="muted" style="margin-top:4px"></div>
     <div id="pyb-setup" style="display:none">
     <div class="row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap" title="Puedes guardar varios stratums públicos (por ejemplo dos puertos del mismo host) y elegir a cuál van los pedidos nuevos de PyBLØCK y P2Hash. No se mezclan: se usa uno cada vez."><span class="muted"><span class="tag pyb">PyBLØCK</span> stratum público de tu DATUM:</span>
       <select id="set-gw-sel" style="min-width:240px"></select> <button id="set-gw-use" class="small">Usar este</button> <button id="set-gw-del" class="small">Quitar</button></div>
@@ -1193,7 +1194,9 @@ async function loadSetup(openIfMissing){
   $('#apiinfo').innerHTML += `<br><span class="muted">Gateway DATUM: <span class="mono">${esc(S.gateway.url)}</span> · ${S.gateway.ok?'<span style="color:var(--accent2)">conectado</span>':'<span style="color:var(--warn)">sin respuesta'+(S.gateway.error?': '+esc(S.gateway.error):'')+'</span>'}</span>`;
   const sel=$('#sel-profile'); sel.parentElement.style.display=S.linked?'':'none';
   if(S.linked){ try{ const r=await api('/api/setup/profiles');
-      sel.innerHTML='<option value="">— elige un perfil —</option>'+r.profiles.map(x=>`<option value="${x.id}" ${String(x.id)===String(r.profile_id)?'selected':''}>${esc(x.name)} (${esc(x.algo)}${x.matches?'':' · otro algoritmo'})${x.pool?' → '+esc(x.pool)+(x.gw?(multiGw()?' · '+esc(gwName(x.gw)):''):' · sin gateway guardado'):''}</option>`).join('');
+      sel.innerHTML='<option value="">— elige un perfil —</option>'+r.profiles.map(x=>`<option value="${x.id}" ${String(x.id)===String(r.profile_id)?'selected':''}>${esc(x.name)} (${esc(x.algo)}${x.matches?'':' · otro algoritmo'})${x.pool?' → '+esc(x.pool)+(x.warn==='datum_pool'?' · ⚠ puerto DATUM del pool, no tu stratum':(x.gw?(multiGw()?' · '+esc(gwName(x.gw)):''):' · sin gateway guardado')):''}</option>`).join('');
+      const cur=r.profiles.find(x=>String(x.id)===String(r.profile_id));
+      $('#profile-warn').innerHTML = cur&&cur.warn==='datum_pool' ? DATUM_POOL_WARN(cur.pool) : '';
     }catch(e){ sel.innerHTML=`<option value="">no se pudieron leer: ${esc(e.message)}</option>`; } }
   const P=S.pyblock||{}; $('#pyb-setup').style.display=P.enabled?'':'none';
   if(P.enabled){ gwFill('set-gw', P.gateways, P.gateway); gwWire('set-gw', ()=>{ loadSetup(false); refresh(true); });
@@ -1212,11 +1215,14 @@ $('#setup-save').onclick=async()=>{ $('#setup-err').textContent='comprobando con
 $('#btn-key-change').onclick=openSetup;
 $('#btn-key-unlink').onclick=async()=>{ if(!await confirmDlg('<b>Desvincular la clave API</b><p>Se borra de este servidor. Lo ya medido se queda; hasta que metas otra clave no se ven tus alquileres ni tu saldo. Si ya no la vas a usar, bórrala también en MRR.</p>')) return;
   try{ await api('/api/setup/unlink',{}); toast('Clave desvinculada'); loadSetup(false); refresh(true); }catch(e){ toast(e.message,true);} };
+// 1.6.1: port 28915 is the DATUM protocol between a gateway and its pool, not a stratum
+const DATUM_POOL_WARN=pool=>`<span style="color:var(--warn)">⚠ Este perfil apunta a <b class="mono">${esc(pool)}</b>, el puerto DATUM del pool (el que usa tu gateway para hablar con el pool), no al stratum de tu DATUM. Los alquileres no llegarán a tu gateway y el panel no los verá. En MRR, cambia el pool del perfil a tu stratum público (tu IP o dominio y el puerto stratum de tu DATUM, p. ej. 23334) con tu usuario dirección.worker. No lo guardes como gateway: no es tuyo.</span>`;
 $('#btn-profile').onclick=async()=>{ const v=$('#sel-profile').value; if(!v) return toast('Elige un perfil',true);
   if(!await confirmDlg('<b>Usar este perfil de pool</b><p>Los alquileres que hagas desde aquí empezarán minando a él. Debe apuntar al stratum de <b>tu</b> DATUM visible desde internet: tu IP pública o dominio y el puerto stratum del DATUM abierto en tu router. Luego el panel le pone a cada alquiler su propio worker para auditarlo.</p>')) return;
   try{ const r=await api('/api/setup/profile',{profile_id:Number(v)}); loadSetup(false);
     if(r.profile_gw){ VIEW=r.profile_gw; try{ localStorage.setItem('mcc.view', VIEW); }catch(e){}
       toast('Perfil guardado'+(multiGw()?': ves y alquilas en '+gwName(r.profile_gw):'')); refresh(true); }
+    else if(r.profile_warn==='datum_pool'){ toast('Perfil guardado, pero apunta al puerto DATUM del pool ('+r.profile_pool+'): ahí no llega nada a tu gateway. Cámbialo en MRR a tu stratum',true); }
     else if(r.profile_pool){ $('#gwm-hp').value=r.profile_pool; const gc=$('#gw-card'); gc.classList.add('open'); gc.scrollIntoView({behavior:'smooth'}); $('#gwm-name').focus();
       toast('Perfil guardado. Apunta a '+r.profile_pool+', que no está entre tus gateways: ponle nombre y su página de estado y pulsa Guardar'); }
     else toast('Perfil guardado'); }catch(e){ toast(e.message,true);} };
