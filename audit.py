@@ -43,6 +43,7 @@ before a rental got its own worker cannot be separated, so it is judged only
 from that moment on.
 """
 import contextlib
+import sys
 import math
 import os
 import sqlite3
@@ -111,7 +112,19 @@ class Audit:
         self.path = path if os.path.isabs(path) else os.path.join(here, path)
         self.poll = 10
         self._last_prune = 0
-        self._init()
+        try:
+            self._init()
+        except sqlite3.DatabaseError as e:
+            # 1.6.3: a damaged audit.db ("file is not a database", "malformed", after a power cut
+            # or a full disk) used to stop the dashboard from starting at all. The audit is a
+            # history that rebuilds itself: keep the damaged file aside and start a new one.
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            for suffix in ("", "-wal", "-shm"):
+                if os.path.exists(self.path + suffix):
+                    os.replace(self.path + suffix, f"{self.path}.corrupt-{stamp}{suffix}")
+            print(f"[audit] {self.path} was damaged ({e}); moved aside to {self.path}.corrupt-{stamp}, "
+                  "starting a new audit database", file=sys.stderr, flush=True)
+            self._init()
 
     # ------------------------------------------------------------------ storage
     @contextlib.contextmanager
