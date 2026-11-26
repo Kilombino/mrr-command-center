@@ -205,14 +205,25 @@ def edit_gateways(raw, action, gateway, name="", api=None):
                 hit["api"] = new
         if not (p.get("gateway") or {}).get("host"):
             p["gateway"] = dict(g)          # the first one saved is the active one
-    elif action in ("use", "remove", "primary"):
+    elif action == "nobackup":
+        p["backup"] = {"host": "", "port": 0}
+    elif action in ("use", "remove", "primary", "backup"):
         g = parse_hostport(gateway)
         hit = g and next((x for x in lst if hostport(x).lower() == hostport(g).lower()), None)
         if not hit:
             raise ValueError("ese stratum no está guardado")
         active = hostport(p.get("gateway") or {}).lower()
+        backup = hostport(p.get("backup") or {}).lower()
         if action == "use":
             p["gateway"] = {"host": hit["host"], "port": hit["port"]}
+            if hostport(hit).lower() == backup:     # never the same as the backup
+                p["backup"] = {"host": "", "port": 0}
+        elif action == "backup":
+            # 1.6.4: PyBLØCK takes an optional fallback gateway per order ("backup", different
+            # from the main one): rented power moves to it while the main one does not answer
+            if hostport(hit).lower() == active:
+                raise ValueError("ese es el que está en uso: el respaldo tiene que ser otro")
+            p["backup"] = {"host": hit["host"], "port": hit["port"]}
         elif action == "primary":
             for x in lst:
                 x.pop("primary", None)
@@ -220,6 +231,8 @@ def edit_gateways(raw, action, gateway, name="", api=None):
         else:
             if hostport(hit).lower() == active:
                 raise ValueError("ese es el que está en uso: elige otro antes de quitarlo")
+            if hostport(hit).lower() == backup:
+                p["backup"] = {"host": "", "port": 0}
             if lst.index(hit) == primary_index(lst):
                 raise ValueError("ese es tu gateway principal (el que el panel lee siempre): no se puede quitar")
             lst.remove(hit)

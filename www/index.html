@@ -489,7 +489,7 @@ body.nobot #hashcard{grid-column:span 12}
       <div class="muted" style="font-size:12.5px;margin-bottom:8px" id="pyb-where"></div>
       <div class="pybadd" id="pyb-gw-box" title="Puedes guardar varios stratums públicos (por ejemplo dos puertos del mismo host) y elegir a cuál van los pedidos nuevos de PyBLØCK y P2Hash. No se mezclan: se usa uno cada vez.">
         <span style="color:#d6b3ff">Stratum para pedidos nuevos</span>
-        <select id="pyb-gw-sel"></select> <button class="small pybbtn" id="pyb-gw-use">Usar este</button> <button class="small" id="pyb-gw-del">Quitar</button>
+        <select id="pyb-gw-sel"></select> <button class="small pybbtn" id="pyb-gw-use">Usar este</button> <button class="small" id="pyb-gw-bk" title="PyBLØCK pasa la potencia alquilada a este gateway si el principal deja de responder, y vuelve cuando regresa">Usar como respaldo</button> <button class="small" id="pyb-gw-nobk">Sin respaldo</button> <button class="small" id="pyb-gw-del">Quitar</button>
         <input id="pyb-gw-name" class="gwn" autocomplete="off" spellcheck="false" placeholder="nombre (opcional)">
         <input id="pyb-gw-new" class="w" autocomplete="off" spellcheck="false" placeholder="host:puerto público">
         <button class="small pybbtn" id="pyb-gw-add">Guardar otro</button>
@@ -1457,10 +1457,10 @@ function renderPyb(d){
 }
 // Saved public stratums (pyblock.gateways): pfx 'pyb-gw' in the market box, 'set-gw' in the
 // packaged setup card. Changing the active one only affects new orders and P2Hash rentals.
-function gwFill(pfx, gws, active){
+function gwFill(pfx, gws, active, backup){
   const sel=$('#'+pfx+'-sel'); if(!sel || document.activeElement===sel) return;
   const keep=sel.value;
-  sel.innerHTML=(gws||[]).length ? gws.map(g=>`<option value="${esc(g.hostport)}">${g.hostport===active?'● ':''}${esc(g.name?g.name+' · ':'')}${esc(g.hostport)}${g.hostport===active?' (en uso)':''}</option>`).join('')
+  sel.innerHTML=(gws||[]).length ? gws.map(g=>`<option value="${esc(g.hostport)}">${g.hostport===active?'● ':g.hostport===backup?'↺ ':''}${esc(g.name?g.name+' · ':'')}${esc(g.hostport)}${g.hostport===active?' (en uso)':g.hostport===backup?' (respaldo)':''}</option>`).join('')
     : '<option value="">— ninguno guardado —</option>';
   sel.value=(gws||[]).some(g=>g.hostport===keep)?keep:(active||'');
 }
@@ -1468,6 +1468,9 @@ function gwWire(pfx, after){
   const b=$('#'+pfx+'-use'); if(!b || b.dataset.w) return; b.dataset.w=1;
   const go=async(action, gateway, name, msg)=>{ try{ await api('/api/pyblock/gateways',{action, gateway, name}); toast(msg); after(); }catch(e){ toast(e.message,true); } };
   b.onclick=()=>{ const v=$('#'+pfx+'-sel').value; if(!v) return toast('No hay ninguno guardado',true); go('use', v, '', 'Stratum en uso: '+v+' (para los pedidos nuevos)'); };
+  // 1.6.4: PyBLØCK's optional fallback gateway (another saved stratum) for new orders
+  const bk=$('#'+pfx+'-bk'); if(bk) bk.onclick=()=>{ const v=$('#'+pfx+'-sel').value; if(!v) return toast('No hay ninguno guardado',true); go('backup', v, '', 'Respaldo: '+v+' (para los pedidos nuevos de PyBLØCK)'); };
+  const nb=$('#'+pfx+'-nobk'); if(nb) nb.onclick=()=>go('nobackup', '', '', 'Sin respaldo');
   $('#'+pfx+'-del').onclick=async()=>{ const v=$('#'+pfx+'-sel').value; if(!v) return;
     if(!await confirmDlg('<b>Quitar el stratum guardado</b><p class="mono">'+esc(v)+'</p>')) return; go('remove', v, '', 'Quitado'); };
   $('#'+pfx+'-add').onclick=async()=>{ const v=$('#'+pfx+'-new').value.trim(), n=$('#'+pfx+'-name').value.trim();
@@ -1481,7 +1484,7 @@ function renderPybMarket(){
        <button class="small" id="pyb-gwtest" title="El mismo chequeo que hace PyBLØCK antes de aceptar un pedido (no crea nada)">Probar gateway</button> <span id="pyb-gwres">${gwRes(pyb.gateway_test)}</span>`
     : '<span class="warn">Falta el stratum público de tu DATUM (host:puerto que se ve desde internet): guárdalo arriba, en la tarjeta Clave API de MRR, fila PyBLØCK. Sin eso no se puede pedir.</span>';
   if($('#pyb-setup')) $('#pyb-gw-box').style.display='none';   // packaged: managed in the setup card
-  else { gwFill('pyb-gw', pyb.gateways, pyb.gateway); gwWire('pyb-gw', ()=>refresh(true)); }
+  else { gwFill('pyb-gw', pyb.gateways, pyb.gateway, pyb.backup); gwWire('pyb-gw', ()=>refresh(true)); }
   const t=$('#pyb-gwtest'); if(t) t.onclick=async()=>{ $('#pyb-gwres').textContent='probando…'; try{ $('#pyb-gwres').innerHTML=gwRes(await api('/api/pyblock/gateway-test?force=1')); }catch(e){ $('#pyb-gwres').innerHTML='<span class="bad">'+esc(e.message)+'</span>'; } };
   if(!cat){ $('#pyb-info').textContent=''; $('#t-pyb tbody').innerHTML=`<tr><td colspan="10" class="bad">${esc(pyb.error||'catálogo no disponible')}</td></tr>`; return; }
   $('#pyb-info').textContent = (pyb.error?pyb.error+' · ':'')+'límites '+(cat.limits.min_hours||'?')+'–'+(cat.limits.max_hours||'?')+' h · máx '+(cat.limits.max_order_th||'?')+' TH/pedido · '+new Date(cat.at*1000).toLocaleTimeString();
