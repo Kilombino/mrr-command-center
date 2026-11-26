@@ -143,3 +143,20 @@ class DamagedAuditDbTest(unittest.TestCase):
             with a.db() as c:
                 self.assertIsNotNone(c.execute("SELECT count(*) FROM samples").fetchone())
             self.assertTrue(any(n.startswith("audit.db.corrupt-") for n in os.listdir(d)))
+
+
+class PyblockBackupGatewayTest(unittest.TestCase):
+    def test_backup_set_cleared_and_never_the_active_one(self):
+        import pyblock as pyb
+        raw = {"pyblock": {"gateway": {"host": "h", "port": 23334},
+                           "gateways": [{"name": "A", "host": "h", "port": 23334},
+                                        {"name": "B", "host": "h", "port": 23335}]}}
+        pyb.edit_gateways(raw, "backup", "h:23335")
+        self.assertEqual(raw["pyblock"]["backup"], {"host": "h", "port": 23335})
+        with self.assertRaises(ValueError):
+            pyb.edit_gateways(raw, "backup", "h:23334")          # the active one
+        pyb.edit_gateways(raw, "use", "h:23335")                 # active becomes the backup → cleared
+        self.assertEqual(raw["pyblock"]["backup"], {"host": "", "port": 0})
+        pyb.edit_gateways(raw, "backup", "h:23334")
+        pyb.edit_gateways(raw, "nobackup", "")
+        self.assertEqual(raw["pyblock"]["backup"], {"host": "", "port": 0})

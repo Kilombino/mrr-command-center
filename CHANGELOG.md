@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.4 (26 Nov 2026)
+
+- **Backup gateway for PyBLØCK orders.** PyBLØCK now takes an optional fallback gateway per
+  order: rented power moves to it while the main one doesn't answer. Next to "Usar este", the
+  saved-stratum box has "Usar como respaldo" and "Sin respaldo"; the backup (marked ↺ in the
+  list) must differ from the active one and is sent with every new order (`pyblock.backup`, which
+  the backend already supported but nothing in the dashboard could set).
+
 ## 1.6.3 (26 Nov 2026)
 
 - **A damaged audit database no longer stops the dashboard.** If `audit.db` can't be opened
