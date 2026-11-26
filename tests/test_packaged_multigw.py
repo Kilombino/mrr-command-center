@@ -103,6 +103,21 @@ class PackagedProfileGatewayTests(unittest.TestCase):
         with open(self.path) as f:                                         # orders keep their gateway
             self.assertEqual(json.load(f)["pyblock"]["gateway"], {"host": "pool.example.com", "port": 23334})
 
+    def test_one_gateway_is_not_a_profile_on_another_port(self):
+        with open(self.path) as f:
+            raw = json.load(f)
+        raw["pyblock"]["gateways"] = raw["pyblock"]["gateways"][:1]              # only Start9 :23334
+        with open(self.path, "w") as f:
+            json.dump(raw, f)
+        r = dashboard.pool_profiles()
+        got = {p["id"]: p["gw"] for p in r["profiles"]}
+        self.assertEqual(got[1], "main")                                     # :23334, the gateway's port
+        self.assertIsNone(got[2])                                            # :23335, not saved
+        with mock.patch.object(dashboard, "setup_view", lambda: {}):
+            dashboard.set_profile(2)
+        with open(self.path) as f:                                           # orders stay on :23334
+            self.assertEqual(json.load(f)["pyblock"]["gateway"], {"host": "pool.example.com", "port": 23334})
+
     def test_platform_datum_is_the_main_gateway(self):
         lst = gw.listing(dashboard.cfg())
         self.assertEqual(lst[0]["key"], "main")
