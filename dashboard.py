@@ -808,7 +808,14 @@ def profile_gateway(api, p, lst):
     warn = gw_mod.pool_warning(host, port)
     if warn:
         return {"pool": f"{host}:{port}", "gw": None, "warn": warn}
-    return {"pool": f"{host}:{port}", "gw": gw_mod.match(lst, host, port) if len(lst) > 1 else gw_mod.MAIN}
+    if len(lst) > 1:
+        gw = gw_mod.match(lst, host, port)
+    else:
+        # one gateway: it is this profile's only if its stratum is unknown or the same port;
+        # a profile pointing elsewhere (another gateway not saved yet) is not it
+        only = lst[0] if lst else {"key": gw_mod.MAIN, "port": 0}
+        gw = only["key"] if not only.get("port") or int(port) == int(only["port"]) else None
+    return {"pool": f"{host}:{port}", "gw": gw}
 
 
 def edit_pyblock_gateways(action, gateway, name="", api=None):
@@ -1306,7 +1313,7 @@ def edit_alerts(updates):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.6.1"
+    server_version = "mrr-dashboard/1.6.2"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):

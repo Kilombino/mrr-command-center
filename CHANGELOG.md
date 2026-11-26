@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.2 (26 Nov 2026)
+
+- **With a single gateway, a pool profile pointing at another port is no longer taken for
+  it.** Before, the only gateway was every profile's: choosing a profile that mines to
+  `:23335` while the saved gateway is `:23334` moved PyBLØCK/P2Hash orders to `:23334`. Now
+  such a profile shows "sin gateway guardado" (save that gateway to use it) and orders stay
+  where they were. A gateway with no known stratum still takes every profile, as before.
+
 ## 1.6.1 (25 Nov 2026)
 
 - **A pool profile pointing at a pool's DATUM port is flagged.** Port 28915 is where a
