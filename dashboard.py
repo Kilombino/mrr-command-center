@@ -608,6 +608,7 @@ def pyblock_setup(c):
     g = p["gateway"]
     return {"enabled": bool(p.get("enabled", True)),
             "gateway": f"{g['host']}:{int(g['port'] or 0)}" if g.get("host") else "",
+            "backup": pyb_mod.hostport(p.get("backup") or {}),
             "gateways": pyb_mod.public_gateways(p["gateways"]),
             "address": (p.get("address") or "").strip()}
 

@@ -314,7 +314,7 @@ body.nobot #hashcard{grid-column:span 12}
       <div id="profile-warn" class="muted" style="margin-top:4px"></div>
     <div id="pyb-setup" style="display:none">
     <div class="row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap" title="Puedes guardar varios stratums públicos (por ejemplo dos puertos del mismo host) y elegir a cuál van los pedidos nuevos de PyBLØCK y P2Hash. No se mezclan: se usa uno cada vez."><span class="muted"><span class="tag pyb">PyBLØCK</span> stratum público de tu DATUM:</span>
-      <select id="set-gw-sel" style="min-width:240px"></select> <button id="set-gw-use" class="small">Usar este</button> <button id="set-gw-del" class="small">Quitar</button></div>
+      <select id="set-gw-sel" style="min-width:240px"></select> <button id="set-gw-use" class="small">Usar este</button> <button id="set-gw-bk" class="small" title="PyBLØCK pasa la potencia alquilada a este gateway si el principal deja de responder, y vuelve cuando regresa">Usar como respaldo</button> <button id="set-gw-nobk" class="small">Sin respaldo</button> <button id="set-gw-del" class="small">Quitar</button></div>
     <div class="row" style="margin-top:6px;gap:8px;align-items:center;flex-wrap:wrap"><span class="muted">guardar otro:</span>
       <input id="set-gw-name" placeholder="nombre (DATUM, PATUM…)" autocomplete="off" spellcheck="false" style="min-width:210px;max-width:240px">
       <input id="set-gw-new" placeholder="tu-dominio-o-ip:puerto" autocomplete="off" spellcheck="false" style="min-width:220px">
@@ -1199,7 +1199,7 @@ async function loadSetup(openIfMissing){
       $('#profile-warn').innerHTML = cur&&cur.warn==='datum_pool' ? DATUM_POOL_WARN(cur.pool) : '';
     }catch(e){ sel.innerHTML=`<option value="">no se pudieron leer: ${esc(e.message)}</option>`; } }
   const P=S.pyblock||{}; $('#pyb-setup').style.display=P.enabled?'':'none';
-  if(P.enabled){ gwFill('set-gw', P.gateways, P.gateway); gwWire('set-gw', ()=>{ loadSetup(false); refresh(true); });
+  if(P.enabled){ gwFill('set-gw', P.gateways, P.gateway, P.backup); gwWire('set-gw', ()=>{ loadSetup(false); refresh(true); });
     if(document.activeElement!==$('#pyb-set-addr')) $('#pyb-set-addr').value=P.address||''; }
   if(openIfMissing && !S.linked) openSetup();
 }
