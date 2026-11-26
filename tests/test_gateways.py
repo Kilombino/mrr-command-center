@@ -130,3 +130,16 @@ class PoolWarningTest(unittest.TestCase):
         self.assertEqual(g.pool_warning("b.example.org", "28915"), "datum_pool")
         self.assertIsNone(g.pool_warning("203.0.113.5", 23334))
         self.assertIsNone(g.pool_warning("x", None))
+
+
+class DamagedAuditDbTest(unittest.TestCase):
+    def test_damaged_db_is_moved_aside_and_recreated(self):
+        import audit as audit_mod
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "audit.db")
+            with open(p, "wb") as f:
+                f.write(b"this is not sqlite" * 100)
+            a = audit_mod.Audit(d, {"audit": {"db": p}})
+            with a.db() as c:
+                self.assertIsNotNone(c.execute("SELECT count(*) FROM samples").fetchone())
+            self.assertTrue(any(n.startswith("audit.db.corrupt-") for n in os.listdir(d)))

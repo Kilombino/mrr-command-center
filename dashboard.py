@@ -1313,7 +1313,7 @@ def edit_alerts(updates):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mrr-dashboard/1.6.2"
+    server_version = "mrr-dashboard/1.6.3"
 
     def log_message(self, fmt, *args):
         if "/api/" not in (args[0] if args else ""):

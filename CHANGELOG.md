@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.3 (26 Nov 2026)
+
+- **A damaged audit database no longer stops the dashboard.** If `audit.db` can't be opened
+  ("file is not a database", "malformed", e.g. after a power cut or a full disk), it is moved
+  aside as `audit.db.corrupt-<date>` (with its -wal/-shm) and a new one is started. The audit
+  history (finished rentals, favourites, blacklist, ticket marks) starts over; keys, config and
+  everything else are untouched.
+
 ## 1.6.2 (26 Nov 2026)
 
 - **With a single gateway, a pool profile pointing at another port is no longer taken for
